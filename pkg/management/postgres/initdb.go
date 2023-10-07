@@ -96,6 +96,33 @@ type InitInfo struct {
 	PostInitApplicationSQLRefsFolder string
 }
 
+// InitDbInfo contains all the info needed to bootstrap a new PostgreSQL database
+type InitDbInfo struct {
+	// The cluster name to assign to
+	ClusterName string
+
+	// The namespace where the cluster will be installed
+	Namespace string
+
+	// The name of the database to be generated for the applications
+	ApplicationDatabase string
+
+	// The name of the role to be generated for the applications
+	ApplicationUser string
+
+	// The list of queries to be executed just after having
+	// the application database created
+	PostInitApplicationSQL []string
+
+	// The list of queries to be executed inside the template1
+	// database just after having configured a new instance
+	PostInitTemplateSQL []string
+
+	// PostInitApplicationSQLRefsFolder is the folder which contains a bunch
+	// of SQL files to be executed just after having configured a new instance
+	PostInitApplicationSQLRefsFolder string
+}
+
 // VerifyPGData verifies if the passed configuration is OK, otherwise it returns an error
 func (info InitInfo) VerifyPGData() error {
 	pgdataExists, err := fileutils.FileExists(info.PgData)
@@ -265,7 +292,114 @@ func (info InitInfo) ConfigureNewInstance(instance *Instance) error {
 	return nil
 }
 
+// ConfigureNewDatabase creates the expected users and databases in the existing
+// PostgreSQL instance. If any error occurs, we return it
+func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
+	log.Info("Configuring new PostgreSQL database")
+
+	dbSuperUser, err := pool.Connection("postgres")
+	if err != nil {
+		return fmt.Errorf("while getting superuser database: %w", err)
+	}
+
+	var existsRole bool
+	userRow := dbSuperUser.QueryRow("SELECT COUNT(*) > 0 FROM pg_catalog.pg_roles WHERE rolname = $1",
+		info.ApplicationUser)
+	err = userRow.Scan(&existsRole)
+	if err != nil {
+		return err
+	}
+
+	if !existsRole {
+		_, err = dbSuperUser.Exec(fmt.Sprintf(
+			"CREATE ROLE %v LOGIN",
+			pgx.Identifier{info.ApplicationUser}.Sanitize()))
+		if err != nil {
+			return err
+		}
+	}
+
+	dbTemplate, err := pool.Connection("template1")
+	if err != nil {
+		return fmt.Errorf("while getting template database: %w", err)
+	}
+	// Execute the custom set of init queries of the template
+	log.Info("Executing post-init template SQL instructions")
+	if err = info.executeQueries(dbTemplate, info.PostInitTemplateSQL); err != nil {
+		return fmt.Errorf("could not execute init Template queries: %w", err)
+	}
+
+	if info.ApplicationDatabase == "" {
+		return nil
+	}
+
+	var existsDB bool
+	dbRow := dbSuperUser.QueryRow("SELECT COUNT(*) > 0 FROM pg_database WHERE datname = $1", info.ApplicationDatabase)
+	err = dbRow.Scan(&existsDB)
+	if err != nil {
+		return err
+	}
+
+	if existsDB {
+		return nil
+	}
+	_, err = dbSuperUser.Exec(fmt.Sprintf("CREATE DATABASE %v OWNER %v",
+		pgx.Identifier{info.ApplicationDatabase}.Sanitize(),
+		pgx.Identifier{info.ApplicationUser}.Sanitize()))
+	if err != nil {
+		return fmt.Errorf("could not create ApplicationDatabase: %w", err)
+	}
+	appDB, err := pool.Connection(info.ApplicationDatabase)
+	if err != nil {
+		return fmt.Errorf("could not get connection to ApplicationDatabase: %w", err)
+	}
+	// Execute the custom set of init queries of the application database
+	log.Info("executing Application instructions")
+	if err = info.executeQueries(appDB, info.PostInitApplicationSQL); err != nil {
+		return fmt.Errorf("could not execute init Application queries: %w", err)
+	}
+
+	if err = info.executePostInitApplicationSQLRefs(appDB); err != nil {
+		return fmt.Errorf("could not execute post init application SQL refs: %w", err)
+	}
+
+	return nil
+}
+
 func (info InitInfo) executePostInitApplicationSQLRefs(sqlUser *sql.DB) error {
+	if info.PostInitApplicationSQLRefsFolder == "" {
+		return nil
+	}
+
+	if err := fileutils.EnsureDirectoryExists(info.PostInitApplicationSQLRefsFolder); err != nil {
+		return fmt.Errorf("could not find directory: %s, err: %w", info.PostInitApplicationSQLRefsFolder, err)
+	}
+
+	files, err := fileutils.GetDirectoryContent(info.PostInitApplicationSQLRefsFolder)
+	if err != nil {
+		return fmt.Errorf("could not get directory content from: %s, err: %w",
+			info.PostInitApplicationSQLRefsFolder, err)
+	}
+
+	// Sorting ensures that we execute the files in the correct order.
+	// We generate the file names by appending a prefix with the number of execution during the volume generation.
+	sort.Strings(files)
+
+	for _, file := range files {
+		sql, ioErr := fileutils.ReadFile(path.Join(info.PostInitApplicationSQLRefsFolder, file))
+		if ioErr != nil {
+			return fmt.Errorf("could not read file: %s, err; %w", file, err)
+		}
+
+		if err = info.executeQueries(sqlUser, []string{string(sql)}); err != nil {
+			return fmt.Errorf("could not execute queries: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (info InitDbInfo) executePostInitApplicationSQLRefs(sqlUser *sql.DB) error {
 	if info.PostInitApplicationSQLRefsFolder == "" {
 		return nil
 	}
@@ -300,6 +434,24 @@ func (info InitInfo) executePostInitApplicationSQLRefs(sqlUser *sql.DB) error {
 
 // executeQueries run the set of queries in the provided database connection
 func (info InitInfo) executeQueries(sqlUser *sql.DB, queries []string) error {
+	if len(queries) == 0 {
+		log.Debug("No queries to execute")
+		return nil
+	}
+
+	for _, sqlQuery := range queries {
+		log.Debug("Executing query", "sqlQuery", sqlQuery)
+		_, err := sqlUser.Exec(sqlQuery)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// executeQueries run the set of queries in the provided database connection
+func (info InitDbInfo) executeQueries(sqlUser *sql.DB, queries []string) error {
 	if len(queries) == 0 {
 		log.Debug("No queries to execute")
 		return nil
@@ -369,7 +521,7 @@ func (info InitInfo) Bootstrap(ctx context.Context) error {
 		if cluster.Spec.Bootstrap != nil &&
 			cluster.Spec.Bootstrap.InitDB != nil &&
 			cluster.Spec.Bootstrap.InitDB.Import != nil {
-			err = executeLogicalImport(ctx, typedClient, instance, cluster)
+			err = executeLogicalImport(ctx, typedClient, instance.ConnectionPool(), cluster)
 			if err != nil {
 				return fmt.Errorf("while executing logical import: %w", err)
 			}
@@ -379,13 +531,42 @@ func (info InitInfo) Bootstrap(ctx context.Context) error {
 	})
 }
 
+// Bootstrap creates and configures this new PostgreSQL database
+func (info InitDbInfo) Bootstrap(ctx context.Context) error {
+	typedClient, err := management.NewControllerRuntimeClient()
+	if err != nil {
+		return err
+	}
+
+	cluster, err := info.loadCluster(ctx, typedClient)
+	if err != nil {
+		return err
+	}
+
+	pool := NewConnectionPool()
+	err = info.ConfigureNewDatabase(pool)
+	if err != nil {
+		return fmt.Errorf("while configuring new instance: %w", err)
+	}
+
+	if cluster.Spec.Bootstrap != nil &&
+		cluster.Spec.Bootstrap.InitDB != nil &&
+		cluster.Spec.Bootstrap.InitDB.Import != nil {
+		err = executeLogicalImport(ctx, typedClient, pool, cluster)
+		if err != nil {
+			return fmt.Errorf("while executing logical import: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func executeLogicalImport(
 	ctx context.Context,
 	client ctrl.Client,
-	instance *Instance,
+	destinationPool *pool.ConnectionPool,
 	cluster *apiv1.Cluster,
 ) error {
-	destinationPool := instance.ConnectionPool()
 	defer destinationPool.ShutdownConnections()
 
 	originPool, err := getConnectionPoolerForExternalCluster(ctx, cluster, client, cluster.Namespace)

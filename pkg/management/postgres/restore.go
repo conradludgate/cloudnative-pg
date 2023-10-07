@@ -395,6 +395,17 @@ func (info InitInfo) loadCluster(ctx context.Context, typedClient client.Client)
 	return &cluster, nil
 }
 
+// loadCluster loads the cluster definition from the API server
+func (info InitDbInfo) loadCluster(ctx context.Context, typedClient client.Client) (*apiv1.Cluster, error) {
+	var cluster apiv1.Cluster
+	err := typedClient.Get(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.ClusterName}, &cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cluster, nil
+}
+
 // loadBackup loads the backup manifest from the API server of from the object store.
 // It also gets the environment variables that are needed to recover the cluster
 func (info InitInfo) loadBackup(

@@ -578,20 +578,24 @@ func (instance *Instance) GetPgVersion() (semver.Version, error) {
 	return *parsedVersion, nil
 }
 
+func NewConnectionPool() *pool.ConnectionPool {
+	const applicationName = "cnpg-instance-manager"
+	socketDir := GetSocketDir()
+	dsn := fmt.Sprintf(
+		"host=%s port=%v user=%v sslmode=disable application_name=%v",
+		socketDir,
+		GetServerPort(),
+		"postgres",
+		applicationName,
+	)
+
+	return pool.NewConnectionPool(dsn)
+}
+
 // ConnectionPool gets or initializes the connection pool for this instance
 func (instance *Instance) ConnectionPool() *pool.ConnectionPool {
-	const applicationName = "cnpg-instance-manager"
 	if instance.pool == nil {
-		socketDir := GetSocketDir()
-		dsn := fmt.Sprintf(
-			"host=%s port=%v user=%v sslmode=disable application_name=%v",
-			socketDir,
-			GetServerPort(),
-			"postgres",
-			applicationName,
-		)
-
-		instance.pool = pool.NewConnectionPool(dsn)
+		instance.pool = NewConnectionPool()
 	}
 
 	return instance.pool
