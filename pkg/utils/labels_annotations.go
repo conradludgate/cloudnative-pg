@@ -33,6 +33,9 @@ const (
 	// ClusterLabelName is the name of the label cluster which the backup CR belongs to
 	ClusterLabelName = MetadataNamespace + "/cluster"
 
+	// DatabaseLabelName is the name of the label database which the backup CR belongs to
+	DatabaseLabelName = MetadataNamespace + "/database"
+
 	// JobRoleLabelName is the name of the label containing the purpose of the executed job
 	// the value could be import, initdb, join
 	JobRoleLabelName = MetadataNamespace + "/jobRole"

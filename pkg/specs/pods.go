@@ -153,6 +153,44 @@ func CreatePodEnvConfig(cluster apiv1.Cluster, podName string) EnvConfig {
 	return config
 }
 
+// CreatePodEnvConfig returns the hash of pod env configuration
+func CreatePodEnvConfig2(database apiv1.Database, podName string) EnvConfig {
+	// When adding an environment variable here, remember to change the `isReservedEnvironmentVariable`
+	// function in `cluster_webhook.go` too.
+	config := EnvConfig{
+		EnvVars: []corev1.EnvVar{
+			{
+				Name:  "PGDATA",
+				Value: PgDataPath,
+			},
+			{
+				Name:  "POD_NAME",
+				Value: podName,
+			},
+			{
+				Name:  "NAMESPACE",
+				Value: database.Namespace,
+			},
+			{
+				Name:  "CLUSTER_NAME",
+				Value: database.Name,
+			},
+			{
+				Name:  "PGPORT",
+				Value: strconv.Itoa(postgres.ServerPort),
+			},
+			{
+				Name:  "PGHOST",
+				Value: postgres.SocketDirectory,
+			},
+		},
+	}
+
+	hashValue, _ := hash.ComputeHash(config)
+	config.Hash = hashValue
+	return config
+}
+
 // CreateClusterPodSpec computes the PodSpec corresponding to a cluster
 func CreateClusterPodSpec(
 	podName string,

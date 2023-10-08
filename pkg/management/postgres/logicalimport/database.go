@@ -31,13 +31,14 @@ import (
 )
 
 type databaseSnapshotter struct {
-	cluster *apiv1.Cluster
+	// cluster *apiv1.Cluster
+	init *apiv1.BootstrapInitDB
 }
 
 func (ds *databaseSnapshotter) getDatabaseList(ctx context.Context, target pool.Pooler) ([]string, error) {
 	contextLogger := log.FromContext(ctx)
 
-	passedDatabases := ds.cluster.Spec.Bootstrap.InitDB.Import.Databases
+	passedDatabases := ds.init.Import.Databases
 
 	if !slices.Contains(passedDatabases, "*") {
 		contextLogger.Info(
@@ -259,7 +260,7 @@ func (ds *databaseSnapshotter) executePostImportQueries(
 	target pool.Pooler,
 	database string,
 ) error {
-	postImportQueries := ds.cluster.Spec.Bootstrap.InitDB.Import.PostImportApplicationSQL
+	postImportQueries := ds.init.Import.PostImportApplicationSQL
 	if len(postImportQueries) == 0 {
 		return nil
 	}
@@ -358,7 +359,7 @@ func (ds *databaseSnapshotter) getSectionsToExecute() []string {
 		postData = "post-data"
 	)
 
-	if ds.cluster.Spec.Bootstrap.InitDB.Import.SchemaOnly {
+	if ds.init.Import.SchemaOnly {
 		return []string{preData, postData}
 	}
 

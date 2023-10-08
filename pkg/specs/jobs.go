@@ -236,13 +236,14 @@ type jobRole string
 const (
 	jobRoleImport           jobRole = "import"
 	jobRoleInitDB           jobRole = "initdb"
+	jobRoleSetupDB          jobRole = "setupdb"
 	jobRolePGBaseBackup     jobRole = "pgbasebackup"
 	jobRoleFullRecovery     jobRole = "full-recovery"
 	jobRoleJoin             jobRole = "join"
 	jobRoleSnapshotRecovery jobRole = "snapshot-recovery"
 )
 
-var jobRoleList = []jobRole{jobRoleImport, jobRoleInitDB, jobRolePGBaseBackup, jobRoleFullRecovery, jobRoleJoin}
+var jobRoleList = []jobRole{jobRoleImport, jobRoleInitDB, jobRoleSetupDB, jobRolePGBaseBackup, jobRoleFullRecovery, jobRoleJoin}
 
 // getJobName returns a string indicating the job name
 func (role jobRole) getJobName(instanceName string) string {
@@ -332,6 +333,147 @@ func createPrimaryJob(cluster apiv1.Cluster, nodeSerial int, role jobRole, initC
 	if cluster.ShouldInitDBRunPostInitApplicationSQLRefs() {
 		volumes, volumeMounts := createVolumesAndVolumeMountsForPostInitApplicationSQLRefs(
 			cluster.Spec.Bootstrap.InitDB.PostInitApplicationSQLRefs,
+		)
+		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volumes...)
+		job.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+			job.Spec.Template.Spec.Containers[0].VolumeMounts, volumeMounts...)
+	}
+
+	if cluster.Spec.PriorityClassName != "" {
+		job.Spec.Template.Spec.PriorityClassName = cluster.Spec.PriorityClassName
+	}
+
+	return job
+}
+
+// CreateDatabaseSetupJob creates a new database instance in the cluster
+func CreateDatabaseSetupJob(cluster apiv1.Cluster, database apiv1.Database, nodeSerial int) *batchv1.Job {
+	initCommand := []string{
+		"/controller/manager",
+		"database",
+		"setupdb",
+	}
+
+	// if database.Spec.Bootstrap != nil && database.Spec.Bootstrap.InitDB != nil {
+	// 	initCommand = append(initCommand, buildInitDBFlags(database)...)
+	// }
+
+	// if database.Spec.Bootstrap.InitDB.PostInitSQL != nil {
+	// 	initCommand = append(
+	// 		initCommand,
+	// 		"--post-init-sql",
+	// 		shellquote.Join(database.Spec.Bootstrap.InitDB.PostInitSQL...))
+	// }
+
+	if database.Spec.Bootstrap.InitDB.PostInitApplicationSQL != nil {
+		initCommand = append(
+			initCommand,
+			"--post-init-application-sql",
+			shellquote.Join(database.Spec.Bootstrap.InitDB.PostInitApplicationSQL...))
+	}
+
+	if database.Spec.Bootstrap.InitDB.PostInitTemplateSQL != nil {
+		initCommand = append(
+			initCommand,
+			"--post-init-template-sql",
+			shellquote.Join(database.Spec.Bootstrap.InitDB.PostInitTemplateSQL...))
+	}
+
+	if database.ShouldInitDBCreateApplicationDatabase() {
+		initCommand = append(initCommand,
+			"--app-db-name", database.Spec.Bootstrap.InitDB.Database,
+			"--app-user", database.Spec.Bootstrap.InitDB.Owner)
+	}
+
+	if database.Spec.Bootstrap.InitDB.Import != nil {
+		return createSetupJob(cluster, database, nodeSerial, jobRoleImport, initCommand)
+	}
+
+	if database.ShouldInitDBRunPostInitApplicationSQLRefs() {
+		initCommand = append(initCommand,
+			"--post-init-application-sql-refs-folder", postInitApplicationSQLRefsFolder)
+	}
+
+	return createSetupJob(cluster, database, nodeSerial, jobRoleInitDB, initCommand)
+}
+
+// createPrimaryJob create a job that executes the provided command.
+// The role should describe the purpose of the executed job
+func createSetupJob(cluster apiv1.Cluster, database apiv1.Database, nodeSerial int, role jobRole, initCommand []string) *batchv1.Job {
+	instanceName := fmt.Sprintf("%s-%s-%v", cluster.Name, database.Name, nodeSerial)
+	jobName := role.getJobName(instanceName)
+
+	envConfig := CreatePodEnvConfig2(database, jobName)
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: jobName,
+			// TODO: should this be in the database namespace or the cluster namespace
+			Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				utils.InstanceNameLabelName: instanceName,
+				utils.ClusterLabelName:      cluster.Name,
+				utils.DatabaseLabelName:     database.Name,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						utils.InstanceNameLabelName: instanceName,
+						utils.ClusterLabelName:      cluster.Name,
+						utils.DatabaseLabelName:     database.Name,
+						utils.JobRoleLabelName:      string(role),
+					},
+				},
+				Spec: corev1.PodSpec{
+					Hostname: jobName,
+					InitContainers: []corev1.Container{
+						createBootstrapContainer(cluster),
+					},
+					SchedulerName: cluster.Spec.SchedulerName,
+					Containers: []corev1.Container{
+						{
+							Name:            string(role),
+							Image:           cluster.GetImageName(),
+							ImagePullPolicy: cluster.Spec.ImagePullPolicy,
+							Env:             envConfig.EnvVars,
+							EnvFrom:         envConfig.EnvFrom,
+							Command:         initCommand,
+							Resources:       cluster.Spec.Resources,
+							SecurityContext: CreateContainerSecurityContext(cluster.GetSeccompProfile()),
+						},
+					},
+					Volumes: createPostgresVolumes(cluster, instanceName),
+					SecurityContext: CreatePodSecurityContext(
+						cluster.GetSeccompProfile(),
+						cluster.GetPostgresUID(),
+						cluster.GetPostgresGID()),
+					Affinity:    CreateAffinitySection(cluster.Name, cluster.Spec.Affinity),
+					Tolerations: cluster.Spec.Affinity.Tolerations,
+					// todo: maybe cluster-database ?
+					ServiceAccountName:        cluster.Name,
+					RestartPolicy:             corev1.RestartPolicyNever,
+					NodeSelector:              cluster.Spec.Affinity.NodeSelector,
+					TopologySpreadConstraints: cluster.Spec.TopologySpreadConstraints,
+				},
+			},
+		},
+	}
+
+	if configuration.Current.CreateAnyService {
+		job.Spec.Template.Spec.Subdomain = database.GetServiceAnyName()
+	}
+
+	database.SetInheritedDataAndOwnership(&job.ObjectMeta)
+	addManagerLoggingOptions2(database, &job.Spec.Template.Spec.Containers[0])
+	if utils.IsAnnotationAppArmorPresent(&job.Spec.Template.Spec, database.Annotations) {
+		utils.AnnotateAppArmor(&job.ObjectMeta, &job.Spec.Template.Spec, database.Annotations)
+	}
+
+	if database.ShouldInitDBRunPostInitApplicationSQLRefs() {
+		volumes, volumeMounts := createVolumesAndVolumeMountsForPostInitApplicationSQLRefs(
+			database.Spec.Bootstrap.InitDB.PostInitApplicationSQLRefs,
 		)
 		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volumes...)
 		job.Spec.Template.Spec.Containers[0].VolumeMounts = append(

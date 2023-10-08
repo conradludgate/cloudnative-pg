@@ -22,7 +22,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jackc/pgx/v5"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 
@@ -40,14 +39,7 @@ var _ = Describe("databaseSnapshotter methods test", func() {
 
 	BeforeEach(func() {
 		ctx = context.TODO()
-		ds = databaseSnapshotter{
-			cluster: &apiv1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster",
-					Namespace: "test-namespace",
-				},
-			},
-		}
+		ds = databaseSnapshotter{}
 
 		db, dbMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 		Expect(err).ToNot(HaveOccurred())
@@ -99,11 +91,9 @@ var _ = Describe("databaseSnapshotter methods test", func() {
 	Context("executePostImportQueries testing", func() {
 		const createQuery = "CREATE TABLE test (id int)"
 		BeforeEach(func() {
-			ds.cluster.Spec.Bootstrap = &apiv1.BootstrapConfiguration{
-				InitDB: &apiv1.BootstrapInitDB{
-					Import: &apiv1.Import{
-						PostImportApplicationSQL: []string{createQuery},
-					},
+			ds.init = &apiv1.BootstrapInitDB{
+				Import: &apiv1.Import{
+					PostImportApplicationSQL: []string{createQuery},
 				},
 			}
 		})
@@ -176,16 +166,14 @@ var _ = Describe("databaseSnapshotter methods test", func() {
 			"ORDER BY datname"
 
 		BeforeEach(func() {
-			ds.cluster.Spec.Bootstrap = &apiv1.BootstrapConfiguration{
-				InitDB: &apiv1.BootstrapInitDB{
-					Import: &apiv1.Import{},
-				},
+			ds.init = &apiv1.BootstrapInitDB{
+				Import: &apiv1.Import{},
 			}
 		})
 
 		It("should return the explicit database list if present", func() {
 			explicitDatabaseList := []string{"db1", "db2"}
-			ds.cluster.Spec.Bootstrap.InitDB.Import.Databases = explicitDatabaseList
+			ds.init.Import.Databases = explicitDatabaseList
 
 			dbs, err := ds.getDatabaseList(ctx, fp)
 			Expect(err).ToNot(HaveOccurred())
@@ -194,7 +182,7 @@ var _ = Describe("databaseSnapshotter methods test", func() {
 
 		It("should query for databases if explicit list is not present", func() {
 			expectedQuery := mock.ExpectQuery(query)
-			ds.cluster.Spec.Bootstrap.InitDB.Import.Databases = []string{"*"}
+			ds.init.Import.Databases = []string{"*"}
 
 			queryDatabaseList := []string{"db1", "db2"}
 			rows := sqlmock.NewRows([]string{"datname"})
@@ -211,7 +199,7 @@ var _ = Describe("databaseSnapshotter methods test", func() {
 		It("should return any error encountered when querying for databases", func() {
 			expectedErr := fmt.Errorf("querying error")
 			expectedQuery := mock.ExpectQuery(query)
-			ds.cluster.Spec.Bootstrap.InitDB.Import.Databases = []string{"*"}
+			ds.init.Import.Databases = []string{"*"}
 			expectedQuery.WillReturnError(expectedErr)
 
 			_, err := ds.getDatabaseList(ctx, fp)

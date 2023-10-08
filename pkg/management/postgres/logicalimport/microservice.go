@@ -27,13 +27,13 @@ import (
 // Microservice executes the microservice clone type
 func Microservice(
 	ctx context.Context,
-	cluster *apiv1.Cluster,
+	init *apiv1.BootstrapInitDB,
 	destination pool.Pooler,
 	origin pool.Pooler,
 ) error {
 	contextLogger := log.FromContext(ctx)
-	ds := databaseSnapshotter{cluster: cluster}
-	databases := cluster.Spec.Bootstrap.InitDB.Import.Databases
+	ds := databaseSnapshotter{init: init}
+	databases := init.Import.Databases
 	contextLogger.Info("starting microservice clone process")
 
 	if err := createDumpsDirectory(); err != nil {
@@ -44,7 +44,7 @@ func Microservice(
 		return err
 	}
 
-	if err := ds.dropExtensionsFromDatabase(ctx, destination, cluster.Spec.Bootstrap.InitDB.Database); err != nil {
+	if err := ds.dropExtensionsFromDatabase(ctx, destination, init.Database); err != nil {
 		return err
 	}
 
@@ -52,8 +52,8 @@ func Microservice(
 		ctx,
 		destination,
 		databases[0],
-		cluster.Spec.Bootstrap.InitDB.Database,
-		cluster.Spec.Bootstrap.InitDB.Owner,
+		init.Database,
+		init.Owner,
 	); err != nil {
 		return err
 	}
@@ -62,9 +62,9 @@ func Microservice(
 		return err
 	}
 
-	if err := ds.executePostImportQueries(ctx, destination, cluster.Spec.Bootstrap.InitDB.Database); err != nil {
+	if err := ds.executePostImportQueries(ctx, destination, init.Database); err != nil {
 		return err
 	}
 
-	return ds.analyze(ctx, destination, []string{cluster.Spec.Bootstrap.InitDB.Database})
+	return ds.analyze(ctx, destination, []string{init.Database})
 }

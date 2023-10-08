@@ -27,6 +27,7 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/backup"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/bootstrap"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/controller"
+	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/database"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/instance"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/pgbouncer"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cmd/manager/show"
@@ -54,6 +55,7 @@ func main() {
 	cmd.AddCommand(backup.NewCmd())
 	cmd.AddCommand(bootstrap.NewCmd())
 	cmd.AddCommand(controller.NewCmd())
+	cmd.AddCommand(database.NewCmd())
 	cmd.AddCommand(instance.NewCmd())
 	cmd.AddCommand(show.NewCmd())
 	cmd.AddCommand(walarchive.NewCmd())

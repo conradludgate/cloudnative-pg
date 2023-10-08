@@ -27,6 +27,15 @@ type LocalObjectReference struct {
 	Name string `json:"name"`
 }
 
+// TODO: better than this?
+// GlobalObjectReference contains enough information to let you locate a
+// local object with a known type inside any namespace
+type GlobalObjectReference struct {
+	// Name of the referent.
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
 // SecretKeySelector contains enough information to let you locate
 // the key of a Secret
 type SecretKeySelector struct {

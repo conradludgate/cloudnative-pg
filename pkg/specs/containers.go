@@ -58,6 +58,15 @@ func addManagerLoggingOptions(cluster apiv1.Cluster, container *corev1.Container
 	container.Command = append(container.Command, log.GetFieldsRemapFlags()...)
 }
 
+// addManagerLoggingOptions propagate the logging configuration
+// to the manager inside the generated pod.
+func addManagerLoggingOptions2(database apiv1.Database, container *corev1.Container) {
+	if database.Spec.LogLevel != "" {
+		container.Command = append(container.Command, fmt.Sprintf("--log-level=%s", database.Spec.LogLevel))
+	}
+	container.Command = append(container.Command, log.GetFieldsRemapFlags()...)
+}
+
 // CreateContainerSecurityContext initializes container security context. It applies the seccomp profile if supported.
 func CreateContainerSecurityContext(seccompProfile *corev1.SeccompProfile) *corev1.SecurityContext {
 	trueValue := true

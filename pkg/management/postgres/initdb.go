@@ -538,7 +538,7 @@ func (info InitDbInfo) Bootstrap(ctx context.Context) error {
 		return err
 	}
 
-	cluster, err := info.loadCluster(ctx, typedClient)
+	database, err := info.loadDatabase(ctx, typedClient)
 	if err != nil {
 		return err
 	}
@@ -549,16 +549,39 @@ func (info InitDbInfo) Bootstrap(ctx context.Context) error {
 		return fmt.Errorf("while configuring new instance: %w", err)
 	}
 
-	if cluster.Spec.Bootstrap != nil &&
-		cluster.Spec.Bootstrap.InitDB != nil &&
-		cluster.Spec.Bootstrap.InitDB.Import != nil {
-		err = executeLogicalImport(ctx, typedClient, pool, cluster)
+	if database.Spec.Bootstrap != nil &&
+		database.Spec.Bootstrap.InitDB != nil &&
+		database.Spec.Bootstrap.InitDB.Import != nil {
+		err = executeLogicalImport2(ctx, typedClient, pool, database)
 		if err != nil {
 			return fmt.Errorf("while executing logical import: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func executeLogicalImport2(
+	ctx context.Context,
+	client ctrl.Client,
+	destinationPool *pool.ConnectionPool,
+	database *apiv1.Database,
+) error {
+	defer destinationPool.ShutdownConnections()
+
+	originPool, err := getConnectionPoolerForExternalClusterDatabase(ctx, database, client, database.Namespace)
+	if err != nil {
+		return err
+	}
+	defer originPool.ShutdownConnections()
+
+	cloneType := database.Spec.Bootstrap.InitDB.Import.Type
+	switch cloneType {
+	case apiv1.MicroserviceSnapshotType:
+		return logicalimport.Microservice(ctx, database.Spec.Bootstrap.InitDB, destinationPool, originPool)
+	default:
+		return fmt.Errorf("unrecognized clone type %s", cloneType)
+	}
 }
 
 func executeLogicalImport(
@@ -578,7 +601,7 @@ func executeLogicalImport(
 	cloneType := cluster.Spec.Bootstrap.InitDB.Import.Type
 	switch cloneType {
 	case apiv1.MicroserviceSnapshotType:
-		return logicalimport.Microservice(ctx, cluster, destinationPool, originPool)
+		return logicalimport.Microservice(ctx, cluster.Spec.Bootstrap.InitDB, destinationPool, originPool)
 	case apiv1.MonolithSnapshotType:
 		return logicalimport.Monolith(ctx, cluster, destinationPool, originPool)
 	default:
@@ -593,6 +616,42 @@ func getConnectionPoolerForExternalCluster(
 	namespaceOfNewCluster string,
 ) (*pool.ConnectionPool, error) {
 	externalCluster, ok := cluster.ExternalCluster(cluster.Spec.Bootstrap.InitDB.Import.Source.ExternalCluster)
+	if !ok {
+		return nil, fmt.Errorf("missing external cluster")
+	}
+
+	modifiedExternalCluster := externalCluster.DeepCopy()
+	delete(modifiedExternalCluster.ConnectionParameters, "dbname")
+
+	sourceDBConnectionString, pgpass, err := external.ConfigureConnectionToServer(
+		ctx,
+		client,
+		namespaceOfNewCluster,
+		modifiedExternalCluster,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unfortunately lib/pq doesn't support the passfile
+	// connection option so we must rely on an environment
+	// variable.
+	if pgpass != "" {
+		if err = os.Setenv("PGPASSFILE", pgpass); err != nil {
+			return nil, err
+		}
+	}
+
+	return pool.NewConnectionPool(sourceDBConnectionString), nil
+}
+
+func getConnectionPoolerForExternalClusterDatabase(
+	ctx context.Context,
+	database *apiv1.Database,
+	client ctrl.Client,
+	namespaceOfNewCluster string,
+) (*pool.ConnectionPool, error) {
+	externalCluster, ok := database.ExternalCluster(database.Spec.Bootstrap.InitDB.Import.Source.ExternalCluster)
 	if !ok {
 		return nil, fmt.Errorf("missing external cluster")
 	}

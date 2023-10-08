@@ -42,7 +42,7 @@ func Monolith(
 		return err
 	}
 
-	ds := databaseSnapshotter{cluster: cluster}
+	ds := databaseSnapshotter{init: cluster.Spec.Bootstrap.InitDB}
 	databases, err := ds.getDatabaseList(ctx, origin)
 	if err != nil {
 		return err
