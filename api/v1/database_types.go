@@ -27,6 +27,26 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/versions"
 )
 
+// DatabasePhase is the phase of the Database
+type DatabasePhase string
+
+const (
+	// DatabasePhasePending means that the Database is still waiting to be started
+	DatabasePhasePending = "pending"
+
+	// DatabasePhaseStarted means that the Database is now running
+	DatabasePhaseStarted = "started"
+
+	// DatabasePhaseRunning means that the Database is now running
+	DatabasePhaseRunning = "running"
+
+	// DatabasePhaseCompleted means that the Database is now completed
+	DatabasePhaseCompleted = "completed"
+
+	// DatabasePhaseFailed means that the Database is failed
+	DatabasePhaseFailed = "failed"
+)
+
 // const (
 // 	// ApplicationUserSecretSuffix is the suffix appended to the cluster name to
 // 	// get the name of the application user secret
@@ -173,6 +193,18 @@ type DatabaseStatus struct {
 	// secret data
 	// +optional
 	SecretsResourceVersion DbSecretsResourceVersion `json:"secretsResourceVersion,omitempty"`
+
+	// Current phase of the cluster
+	// +optional
+	Phase DatabasePhase `json:"phase,omitempty"`
+
+	// Reason for the current phase
+	// +optional
+	PhaseReason string `json:"phaseReason,omitempty"`
+
+	// How many Jobs have been created by this cluster
+	// +optional
+	JobCount int32 `json:"jobCount,omitempty"`
 }
 
 // // BootstrapConfiguration contains information about how to create the PostgreSQL
@@ -666,6 +698,19 @@ type DatabaseList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	// List of databases
 	Items []Database `json:"items"`
+}
+
+// SetAsFailed marks a certain backup as invalid
+func (databaseStatus *DatabaseStatus) SetAsFailed(
+	err error,
+) {
+	databaseStatus.Phase = BackupPhaseFailed
+
+	if err != nil {
+		databaseStatus.PhaseReason = err.Error()
+	} else {
+		databaseStatus.PhaseReason = ""
+	}
 }
 
 // SecretsResourceVersion is the resource versions of the secrets
