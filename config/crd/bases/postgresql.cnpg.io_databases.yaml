@@ -1,0 +1,1462 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+  name: databases.postgresql.cnpg.io
+spec:
+  group: postgresql.cnpg.io
+  names:
+    kind: Database
+    listKind: DatabaseList
+    plural: databases
+    singular: database
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .spec.cluster.name
+      name: Cluster
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Database is the Schema for the PostgreSQL API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: 'Specification of the desired behavior of the cluster. More
+              info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
+            properties:
+              bootstrap:
+                description: Instructions to bootstrap this cluster
+                properties:
+                  initdb:
+                    description: Bootstrap the cluster via initdb
+                    properties:
+                      database:
+                        description: 'Name of the database used by the application.
+                          Default: `app`.'
+                        type: string
+                      import:
+                        description: Bootstraps the new cluster by importing data
+                          from an existing PostgreSQL instance using logical backup
+                          (`pg_dump` and `pg_restore`)
+                        properties:
+                          databases:
+                            description: The databases to import
+                            items:
+                              type: string
+                            type: array
+                          postImportApplicationSQL:
+                            description: List of SQL queries to be executed as a superuser
+                              in the application database right after is imported
+                              - to be used with extreme care (by default empty). Only
+                              available in microservice type.
+                            items:
+                              type: string
+                            type: array
+                          roles:
+                            description: The roles to import
+                            items:
+                              type: string
+                            type: array
+                          schemaOnly:
+                            default: false
+                            description: 'When set to true, only the `pre-data` and
+                              `post-data` sections of `pg_restore` are invoked, avoiding
+                              data import. Default: `false`.'
+                            type: boolean
+                          source:
+                            description: The source of the import
+                            properties:
+                              externalCluster:
+                                description: The name of the externalCluster used
+                                  for import
+                                type: string
+                            required:
+                            - externalCluster
+                            type: object
+                          type:
+                            description: The import type. Can be `microservice`
+                            enum:
+                            - microservice
+                            type: string
+                        required:
+                        - databases
+                        - source
+                        - type
+                        type: object
+                      owner:
+                        description: Name of the owner of the database in the instance
+                          to be used by applications. Defaults to the value of the
+                          `database` key.
+                        type: string
+                      postInitApplicationSQL:
+                        description: List of SQL queries to be executed as a superuser
+                          in the application database right after is created - to
+                          be used with extreme care (by default empty)
+                        items:
+                          type: string
+                        type: array
+                      postInitApplicationSQLRefs:
+                        description: PostInitApplicationSQLRefs points references
+                          to ConfigMaps or Secrets which contain SQL files, the general
+                          implementation order to these references is from all Secrets
+                          to all ConfigMaps, and inside Secrets or ConfigMaps, the
+                          implementation order is same as the order of each array
+                          (by default empty)
+                        properties:
+                          configMapRefs:
+                            description: ConfigMapRefs holds a list of references
+                              to ConfigMaps
+                            items:
+                              description: ConfigMapKeySelector contains enough information
+                                to let you locate the key of a ConfigMap
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            type: array
+                          secretRefs:
+                            description: SecretRefs holds a list of references to
+                              Secrets
+                            items:
+                              description: SecretKeySelector contains enough information
+                                to let you locate the key of a Secret
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            type: array
+                        type: object
+                      postInitTemplateSQL:
+                        description: List of SQL queries to be executed as a superuser
+                          in the `template1` after the cluster has been created -
+                          to be used with extreme care (by default empty)
+                        items:
+                          type: string
+                        type: array
+                      secret:
+                        description: Name of the secret containing the initial credentials
+                          for the owner of the user database. If empty a new secret
+                          will be created from scratch
+                        properties:
+                          name:
+                            description: Name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    type: object
+                  pg_basebackup:
+                    description: Bootstrap the cluster taking a physical backup of
+                      another compatible PostgreSQL instance
+                    properties:
+                      database:
+                        description: 'Name of the database used by the application.
+                          Default: `app`.'
+                        type: string
+                      owner:
+                        description: Name of the owner of the database in the instance
+                          to be used by applications. Defaults to the value of the
+                          `database` key.
+                        type: string
+                      secret:
+                        description: Name of the secret containing the initial credentials
+                          for the owner of the user database. If empty a new secret
+                          will be created from scratch
+                        properties:
+                          name:
+                            description: Name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      source:
+                        description: The name of the server of which we need to take
+                          a physical backup
+                        minLength: 1
+                        type: string
+                    required:
+                    - source
+                    type: object
+                  recovery:
+                    description: Bootstrap the cluster from a backup
+                    properties:
+                      backup:
+                        description: The backup object containing the physical base
+                          backup from which to initiate the recovery procedure. Mutually
+                          exclusive with `source` and `volumeSnapshots`.
+                        properties:
+                          endpointCA:
+                            description: EndpointCA store the CA bundle of the barman
+                              endpoint. Useful when using self-signed certificates
+                              to avoid errors with certificate issuer and barman-cloud-wal-archive.
+                            properties:
+                              key:
+                                description: The key to select
+                                type: string
+                              name:
+                                description: Name of the referent.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                          name:
+                            description: Name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      database:
+                        description: 'Name of the database used by the application.
+                          Default: `app`.'
+                        type: string
+                      owner:
+                        description: Name of the owner of the database in the instance
+                          to be used by applications. Defaults to the value of the
+                          `database` key.
+                        type: string
+                      recoveryTarget:
+                        description: 'By default, the recovery process applies all
+                          the available WAL files in the archive (full recovery).
+                          However, you can also end the recovery as soon as a consistent
+                          state is reached or recover to a point-in-time (PITR) by
+                          specifying a `RecoveryTarget` object, as expected by PostgreSQL
+                          (i.e., timestamp, transaction Id, LSN, ...). More info:
+                          https://www.postgresql.org/docs/current/runtime-config-wal.html#RUNTIME-CONFIG-WAL-RECOVERY-TARGET'
+                        properties:
+                          backupID:
+                            description: The ID of the backup from which to start
+                              the recovery process. If empty (default) the operator
+                              will automatically detect the backup based on targetTime
+                              or targetLSN if specified. Otherwise use the latest
+                              available backup in chronological order.
+                            type: string
+                          exclusive:
+                            description: Set the target to be exclusive. If omitted,
+                              defaults to false, so that in Postgres, `recovery_target_inclusive`
+                              will be true
+                            type: boolean
+                          targetImmediate:
+                            description: End recovery as soon as a consistent state
+                              is reached
+                            type: boolean
+                          targetLSN:
+                            description: The target LSN (Log Sequence Number)
+                            type: string
+                          targetName:
+                            description: The target name (to be previously created
+                              with `pg_create_restore_point`)
+                            type: string
+                          targetTLI:
+                            description: The target timeline ("latest" or a positive
+                              integer)
+                            type: string
+                          targetTime:
+                            description: The target time as a timestamp in the RFC3339
+                              standard
+                            type: string
+                          targetXID:
+                            description: The target transaction ID
+                            type: string
+                        type: object
+                      secret:
+                        description: Name of the secret containing the initial credentials
+                          for the owner of the user database. If empty a new secret
+                          will be created from scratch
+                        properties:
+                          name:
+                            description: Name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      source:
+                        description: The external cluster whose backup we will restore.
+                          This is also used as the name of the folder under which
+                          the backup is stored, so it must be set to the name of the
+                          source cluster Mutually exclusive with `backup`.
+                        type: string
+                      volumeSnapshots:
+                        description: The static PVC data source(s) from which to initiate
+                          the recovery procedure. Currently supporting `VolumeSnapshot`
+                          and `PersistentVolumeClaim` resources that map an existing
+                          PVC group, compatible with CloudNativePG, and taken with
+                          a cold backup copy on a fenced Postgres instance (limitation
+                          which will be removed in the future when online backup will
+                          be implemented). Mutually exclusive with `backup`.
+                        properties:
+                          storage:
+                            description: Configuration of the storage of the instances
+                            properties:
+                              apiGroup:
+                                description: APIGroup is the group for the resource
+                                  being referenced. If APIGroup is not specified,
+                                  the specified Kind must be in the core API group.
+                                  For any other third-party types, APIGroup is required.
+                                type: string
+                              kind:
+                                description: Kind is the type of resource being referenced
+                                type: string
+                              name:
+                                description: Name is the name of resource being referenced
+                                type: string
+                            required:
+                            - kind
+                            - name
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          walStorage:
+                            description: Configuration of the storage for PostgreSQL
+                              WAL (Write-Ahead Log)
+                            properties:
+                              apiGroup:
+                                description: APIGroup is the group for the resource
+                                  being referenced. If APIGroup is not specified,
+                                  the specified Kind must be in the core API group.
+                                  For any other third-party types, APIGroup is required.
+                                type: string
+                              kind:
+                                description: Kind is the type of resource being referenced
+                                type: string
+                              name:
+                                description: Name is the name of resource being referenced
+                                type: string
+                            required:
+                            - kind
+                            - name
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - storage
+                        type: object
+                    type: object
+                type: object
+              description:
+                description: Description of this PostgreSQL database
+                type: string
+              env:
+                description: Env follows the Env format to pass environment variables
+                  to the pods created in the cluster
+                items:
+                  description: EnvVar represents an environment variable present in
+                    a Container.
+                  properties:
+                    name:
+                      description: Name of the environment variable. Must be a C_IDENTIFIER.
+                      type: string
+                    value:
+                      description: 'Variable references $(VAR_NAME) are expanded using
+                        the previously defined environment variables in the container
+                        and any service environment variables. If a variable cannot
+                        be resolved, the reference in the input string will be unchanged.
+                        Double $$ are reduced to a single $, which allows for escaping
+                        the $(VAR_NAME) syntax: i.e. "$$(VAR_NAME)" will produce the
+                        string literal "$(VAR_NAME)". Escaped references will never
+                        be expanded, regardless of whether the variable exists or
+                        not. Defaults to "".'
+                      type: string
+                    valueFrom:
+                      description: Source for the environment variable's value. Cannot
+                        be used if value is not empty.
+                      properties:
+                        configMapKeyRef:
+                          description: Selects a key of a ConfigMap.
+                          properties:
+                            key:
+                              description: The key to select.
+                              type: string
+                            name:
+                              description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                TODO: Add other useful fields. apiVersion, kind, uid?'
+                              type: string
+                            optional:
+                              description: Specify whether the ConfigMap or its key
+                                must be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        fieldRef:
+                          description: 'Selects a field of the pod: supports metadata.name,
+                            metadata.namespace, `metadata.labels[''<KEY>'']`, `metadata.annotations[''<KEY>'']`,
+                            spec.nodeName, spec.serviceAccountName, status.hostIP,
+                            status.podIP, status.podIPs.'
+                          properties:
+                            apiVersion:
+                              description: Version of the schema the FieldPath is
+                                written in terms of, defaults to "v1".
+                              type: string
+                            fieldPath:
+                              description: Path of the field to select in the specified
+                                API version.
+                              type: string
+                          required:
+                          - fieldPath
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        resourceFieldRef:
+                          description: 'Selects a resource of the container: only
+                            resources limits and requests (limits.cpu, limits.memory,
+                            limits.ephemeral-storage, requests.cpu, requests.memory
+                            and requests.ephemeral-storage) are currently supported.'
+                          properties:
+                            containerName:
+                              description: 'Container name: required for volumes,
+                                optional for env vars'
+                              type: string
+                            divisor:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: Specifies the output format of the exposed
+                                resources, defaults to "1"
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            resource:
+                              description: 'Required: resource to select'
+                              type: string
+                          required:
+                          - resource
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        secretKeyRef:
+                          description: Selects a key of a secret in the pod's namespace
+                          properties:
+                            key:
+                              description: The key of the secret to select from.  Must
+                                be a valid secret key.
+                              type: string
+                            name:
+                              description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                TODO: Add other useful fields. apiVersion, kind, uid?'
+                              type: string
+                            optional:
+                              description: Specify whether the Secret or its key must
+                                be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+              envFrom:
+                description: EnvFrom follows the EnvFrom format to pass environment
+                  variables sources to the pods to be used by Env
+                items:
+                  description: EnvFromSource represents the source of a set of ConfigMaps
+                  properties:
+                    configMapRef:
+                      description: The ConfigMap to select from
+                      properties:
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            TODO: Add other useful fields. apiVersion, kind, uid?'
+                          type: string
+                        optional:
+                          description: Specify whether the ConfigMap must be defined
+                          type: boolean
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    prefix:
+                      description: An optional identifier to prepend to each key in
+                        the ConfigMap. Must be a C_IDENTIFIER.
+                      type: string
+                    secretRef:
+                      description: The Secret to select from
+                      properties:
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            TODO: Add other useful fields. apiVersion, kind, uid?'
+                          type: string
+                        optional:
+                          description: Specify whether the Secret must be defined
+                          type: boolean
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  type: object
+                type: array
+              externalClusters:
+                description: The list of external clusters which are used in the configuration
+                items:
+                  description: ExternalCluster represents the connection parameters
+                    to an external cluster which is used in the other sections of
+                    the configuration
+                  properties:
+                    barmanObjectStore:
+                      description: The configuration for the barman-cloud tool suite
+                      properties:
+                        azureCredentials:
+                          description: The credentials to use to upload data to Azure
+                            Blob Storage
+                          properties:
+                            connectionString:
+                              description: The connection string to be used
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            inheritFromAzureAD:
+                              description: Use the Azure AD based authentication without
+                                providing explicitly the keys.
+                              type: boolean
+                            storageAccount:
+                              description: The storage account where to upload data
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            storageKey:
+                              description: The storage account key to be used in conjunction
+                                with the storage account name
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            storageSasToken:
+                              description: A shared-access-signature to be used in
+                                conjunction with the storage account name
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          type: object
+                        data:
+                          description: The configuration to be used to backup the
+                            data files When not defined, base backups files will be
+                            stored uncompressed and may be unencrypted in the object
+                            store, according to the bucket default policy.
+                          properties:
+                            compression:
+                              description: Compress a backup file (a tar file per
+                                tablespace) while streaming it to the object store.
+                                Available options are empty string (no compression,
+                                default), `gzip`, `bzip2` or `snappy`.
+                              enum:
+                              - gzip
+                              - bzip2
+                              - snappy
+                              type: string
+                            encryption:
+                              description: Whenever to force the encryption of files
+                                (if the bucket is not already configured for that).
+                                Allowed options are empty string (use the bucket policy,
+                                default), `AES256` and `aws:kms`
+                              enum:
+                              - AES256
+                              - aws:kms
+                              type: string
+                            immediateCheckpoint:
+                              description: Control whether the I/O workload for the
+                                backup initial checkpoint will be limited, according
+                                to the `checkpoint_completion_target` setting on the
+                                PostgreSQL server. If set to true, an immediate checkpoint
+                                will be used, meaning PostgreSQL will complete the
+                                checkpoint as soon as possible. `false` by default.
+                              type: boolean
+                            jobs:
+                              description: The number of parallel jobs to be used
+                                to upload the backup, defaults to 2
+                              format: int32
+                              minimum: 1
+                              type: integer
+                          type: object
+                        destinationPath:
+                          description: The path where to store the backup (i.e. s3://bucket/path/to/folder)
+                            this path, with different destination folders, will be
+                            used for WALs and for data
+                          minLength: 1
+                          type: string
+                        endpointCA:
+                          description: EndpointCA store the CA bundle of the barman
+                            endpoint. Useful when using self-signed certificates to
+                            avoid errors with certificate issuer and barman-cloud-wal-archive
+                          properties:
+                            key:
+                              description: The key to select
+                              type: string
+                            name:
+                              description: Name of the referent.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        endpointURL:
+                          description: Endpoint to be used to upload data to the cloud,
+                            overriding the automatic endpoint discovery
+                          type: string
+                        googleCredentials:
+                          description: The credentials to use to upload data to Google
+                            Cloud Storage
+                          properties:
+                            applicationCredentials:
+                              description: The secret containing the Google Cloud
+                                Storage JSON file with the credentials
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            gkeEnvironment:
+                              description: If set to true, will presume that it's
+                                running inside a GKE environment, default to false.
+                              type: boolean
+                          type: object
+                        historyTags:
+                          additionalProperties:
+                            type: string
+                          description: HistoryTags is a list of key value pairs that
+                            will be passed to the Barman --history-tags option.
+                          type: object
+                        s3Credentials:
+                          description: The credentials to use to upload data to S3
+                          properties:
+                            accessKeyId:
+                              description: The reference to the access key id
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            inheritFromIAMRole:
+                              description: Use the role based authentication without
+                                providing explicitly the keys.
+                              type: boolean
+                            region:
+                              description: The reference to the secret containing
+                                the region name
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            secretAccessKey:
+                              description: The reference to the secret access key
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            sessionToken:
+                              description: The references to the session key
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          type: object
+                        serverName:
+                          description: The server name on S3, the cluster name is
+                            used if this parameter is omitted
+                          type: string
+                        tags:
+                          additionalProperties:
+                            type: string
+                          description: Tags is a list of key value pairs that will
+                            be passed to the Barman --tags option.
+                          type: object
+                        wal:
+                          description: The configuration for the backup of the WAL
+                            stream. When not defined, WAL files will be stored uncompressed
+                            and may be unencrypted in the object store, according
+                            to the bucket default policy.
+                          properties:
+                            compression:
+                              description: Compress a WAL file before sending it to
+                                the object store. Available options are empty string
+                                (no compression, default), `gzip`, `bzip2` or `snappy`.
+                              enum:
+                              - gzip
+                              - bzip2
+                              - snappy
+                              type: string
+                            encryption:
+                              description: Whenever to force the encryption of files
+                                (if the bucket is not already configured for that).
+                                Allowed options are empty string (use the bucket policy,
+                                default), `AES256` and `aws:kms`
+                              enum:
+                              - AES256
+                              - aws:kms
+                              type: string
+                            maxParallel:
+                              description: Number of WAL files to be either archived
+                                in parallel (when the PostgreSQL instance is archiving
+                                to a backup object store) or restored in parallel
+                                (when a PostgreSQL standby is fetching WAL files from
+                                a recovery object store). If not specified, WAL files
+                                will be processed one at a time. It accepts a positive
+                                integer as a value - with 1 being the minimum accepted
+                                value.
+                              minimum: 1
+                              type: integer
+                          type: object
+                      required:
+                      - destinationPath
+                      type: object
+                    connectionParameters:
+                      additionalProperties:
+                        type: string
+                      description: The list of connection parameters, such as dbname,
+                        host, username, etc
+                      type: object
+                    name:
+                      description: The server name, required
+                      type: string
+                    password:
+                      description: The reference to the password to be used to connect
+                        to the server
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            TODO: Add other useful fields. apiVersion, kind, uid?'
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    sslCert:
+                      description: The reference to an SSL certificate to be used
+                        to connect to this instance
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            TODO: Add other useful fields. apiVersion, kind, uid?'
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    sslKey:
+                      description: The reference to an SSL private key to be used
+                        to connect to this instance
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            TODO: Add other useful fields. apiVersion, kind, uid?'
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    sslRootCert:
+                      description: The reference to an SSL CA public key to be used
+                        to connect to this instance
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            TODO: Add other useful fields. apiVersion, kind, uid?'
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  required:
+                  - name
+                  type: object
+                type: array
+              inheritedMetadata:
+                description: Metadata that will be inherited by all objects related
+                  to the Cluster
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
+              logLevel:
+                default: info
+                description: 'The instances'' log level, one of the following values:
+                  error, warning, info (default), debug, trace'
+                enum:
+                - error
+                - warning
+                - info
+                - debug
+                - trace
+                type: string
+              managed:
+                description: The configuration that is used by the portions of PostgreSQL
+                  that are managed by the instance manager
+                properties:
+                  roles:
+                    description: Database roles managed by the `Cluster`
+                    items:
+                      description: "RoleConfiguration is the representation, in Kubernetes,
+                        of a PostgreSQL role with the additional field Ensure specifying
+                        whether to ensure the presence or absence of the role in the
+                        database \n The defaults of the CREATE ROLE command are applied
+                        Reference: https://www.postgresql.org/docs/current/sql-createrole.html"
+                      properties:
+                        bypassrls:
+                          description: Whether a role bypasses every row-level security
+                            (RLS) policy. Default is `false`.
+                          type: boolean
+                        comment:
+                          description: Description of the role
+                          type: string
+                        connectionLimit:
+                          default: -1
+                          description: If the role can log in, this specifies how
+                            many concurrent connections the role can make. `-1` (the
+                            default) means no limit.
+                          format: int64
+                          type: integer
+                        createdb:
+                          description: When set to `true`, the role being defined
+                            will be allowed to create new databases. Specifying `false`
+                            (default) will deny a role the ability to create databases.
+                          type: boolean
+                        createrole:
+                          description: Whether the role will be permitted to create,
+                            alter, drop, comment on, change the security label for,
+                            and grant or revoke membership in other roles. Default
+                            is `false`.
+                          type: boolean
+                        disablePassword:
+                          description: DisablePassword indicates that a role's password
+                            should be set to NULL in Postgres
+                          type: boolean
+                        ensure:
+                          default: present
+                          description: Ensure the role is `present` or `absent` -
+                            defaults to "present"
+                          enum:
+                          - present
+                          - absent
+                          type: string
+                        inRoles:
+                          description: List of one or more existing roles to which
+                            this role will be immediately added as a new member. Default
+                            empty.
+                          items:
+                            type: string
+                          type: array
+                        inherit:
+                          default: true
+                          description: Whether a role "inherits" the privileges of
+                            roles it is a member of. Defaults is `true`.
+                          type: boolean
+                        login:
+                          description: Whether the role is allowed to log in. A role
+                            having the `login` attribute can be thought of as a user.
+                            Roles without this attribute are useful for managing database
+                            privileges, but are not users in the usual sense of the
+                            word. Default is `false`.
+                          type: boolean
+                        name:
+                          description: Name of the role
+                          type: string
+                        passwordSecret:
+                          description: Secret containing the password of the role
+                            (if present) If null, the password will be ignored unless
+                            DisablePassword is set
+                          properties:
+                            name:
+                              description: Name of the referent.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        replication:
+                          description: Whether a role is a replication role. A role
+                            must have this attribute (or be a superuser) in order
+                            to be able to connect to the server in replication mode
+                            (physical or logical replication) and in order to be able
+                            to create or drop replication slots. A role having the
+                            `replication` attribute is a very highly privileged role,
+                            and should only be used on roles actually used for replication.
+                            Default is `false`.
+                          type: boolean
+                        superuser:
+                          description: Whether the role is a `superuser` who can override
+                            all access restrictions within the database - superuser
+                            status is dangerous and should be used only when really
+                            needed. You must yourself be a superuser to create a new
+                            superuser. Defaults is `false`.
+                          type: boolean
+                        validUntil:
+                          description: Date and time after which the role's password
+                            is no longer valid. When omitted, the password will never
+                            expire (default).
+                          format: date-time
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
+              serviceAccountTemplate:
+                description: Configure the generation of the service account
+                properties:
+                  metadata:
+                    description: Metadata are the metadata to be used for the generated
+                      service account
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: 'Annotations is an unstructured key value map
+                          stored with a resource that may be set by external tools
+                          to store and retrieve arbitrary metadata. They are not queryable
+                          and should be preserved when modifying objects. More info:
+                          http://kubernetes.io/docs/user-guide/annotations'
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: 'Map of string keys and values that can be used
+                          to organize and categorize (scope and select) objects. May
+                          match selectors of replication controllers and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels'
+                        type: object
+                    type: object
+                required:
+                - metadata
+                type: object
+            required:
+            - bootstrap
+            type: object
+          status:
+            description: 'Most recently observed status of the cluster. This data
+              may not be up to date. Populated by the system. Read-only. More info:
+              https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
+            properties:
+              azurePVCUpdateEnabled:
+                description: AzurePVCUpdateEnabled shows if the PVC online upgrade
+                  is enabled for this cluster
+                type: boolean
+              certificates:
+                description: The configuration for the CA and related certificates,
+                  initialized with defaults.
+                properties:
+                  clientCASecret:
+                    description: 'The secret containing the Client CA certificate.
+                      If not defined, a new secret will be created with a self-signed
+                      CA and will be used to generate all the client certificates.<br
+                      /> <br /> Contains:<br /> <br /> - `ca.crt`: CA that should
+                      be used to validate the client certificates, used as `ssl_ca_file`
+                      of all the instances.<br /> - `ca.key`: key used to generate
+                      client certificates, if ReplicationTLSSecret is provided, this
+                      can be omitted.<br />'
+                    type: string
+                  expirations:
+                    additionalProperties:
+                      type: string
+                    description: Expiration dates for all certificates.
+                    type: object
+                  replicationTLSSecret:
+                    description: The secret of type kubernetes.io/tls containing the
+                      client certificate to authenticate as the `streaming_replica`
+                      user. If not defined, ClientCASecret must provide also `ca.key`,
+                      and a new secret will be created using the provided CA.
+                    type: string
+                  serverAltDNSNames:
+                    description: The list of the server alternative DNS names to be
+                      added to the generated server TLS certificates, when required.
+                    items:
+                      type: string
+                    type: array
+                  serverCASecret:
+                    description: 'The secret containing the Server CA certificate.
+                      If not defined, a new secret will be created with a self-signed
+                      CA and will be used to generate the TLS certificate ServerTLSSecret.<br
+                      /> <br /> Contains:<br /> <br /> - `ca.crt`: CA that should
+                      be used to validate the server certificate, used as `sslrootcert`
+                      in client connection strings.<br /> - `ca.key`: key used to
+                      generate Server SSL certs, if ServerTLSSecret is provided, this
+                      can be omitted.<br />'
+                    type: string
+                  serverTLSSecret:
+                    description: The secret of type kubernetes.io/tls containing the
+                      server TLS certificate and key that will be set as `ssl_cert_file`
+                      and `ssl_key_file` so that clients can connect to postgres securely.
+                      If not defined, ServerCASecret must provide also `ca.key` and
+                      a new secret will be created using the provided CA.
+                    type: string
+                type: object
+              cloudNativePGCommitHash:
+                description: The commit hash number of which this operator running
+                type: string
+              cloudNativePGOperatorHash:
+                description: The hash of the binary of the operator
+                type: string
+              conditions:
+                description: Conditions for cluster object
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource. --- This struct is intended for direct
+                    use as an array at the field path .status.conditions.  For example,
+                    \n type FooStatus struct{ // Represents the observations of a
+                    foo's current state. // Known .status.conditions.type are: \"Available\",
+                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
+                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
+                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
+                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
+                  properties:
+                    lastTransitionTime:
+                      description: lastTransitionTime is the last time the condition
+                        transitioned from one status to another. This should be when
+                        the underlying condition changed.  If that is not known, then
+                        using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: message is a human readable message indicating
+                        details about the transition. This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: observedGeneration represents the .metadata.generation
+                        that the condition was set based upon. For instance, if .metadata.generation
+                        is currently 12, but the .status.conditions[x].observedGeneration
+                        is 9, the condition is out of date with respect to the current
+                        state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: reason contains a programmatic identifier indicating
+                        the reason for the condition's last transition. Producers
+                        of specific condition types may define expected values and
+                        meanings for this field, and whether the values are considered
+                        a guaranteed API. The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        --- Many .condition.type values are consistent across resources
+                        like Available, but because arbitrary conditions can be useful
+                        (see .node.status.conditions), the ability to deconflict is
+                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              configMapResourceVersion:
+                description: The list of resource versions of the configmaps, managed
+                  by the operator. Every change here is done in the interest of the
+                  instance manager, which will refresh the configmap data
+                properties:
+                  metrics:
+                    additionalProperties:
+                      type: string
+                    description: A map with the versions of all the config maps used
+                      to pass metrics. Map keys are the config map names, map values
+                      are the versions
+                    type: object
+                type: object
+              currentPrimary:
+                description: Current primary instance
+                type: string
+              currentPrimaryFailingSinceTimestamp:
+                description: The timestamp when the primary was detected to be unhealthy
+                  This field is reported when spec.failoverDelay is populated or during
+                  online upgrades
+                type: string
+              currentPrimaryTimestamp:
+                description: The timestamp when the last actual promotion to primary
+                  has occurred
+                type: string
+              danglingPVC:
+                description: List of all the PVCs created by this cluster and still
+                  available which are not attached to a Pod
+                items:
+                  type: string
+                type: array
+              firstRecoverabilityPoint:
+                description: The first recoverability point, stored as a date in RFC3339
+                  format
+                type: string
+              healthyPVC:
+                description: List of all the PVCs not dangling nor initializing
+                items:
+                  type: string
+                type: array
+              initializingPVC:
+                description: List of all the PVCs that are being initialized by this
+                  cluster
+                items:
+                  type: string
+                type: array
+              instanceNames:
+                description: List of instance names in the cluster
+                items:
+                  type: string
+                type: array
+              instances:
+                description: The total number of PVC Groups detected in the cluster.
+                  It may differ from the number of existing instance pods.
+                type: integer
+              instancesReportedState:
+                additionalProperties:
+                  description: InstanceReportedState describes the last reported state
+                    of an instance during a reconciliation loop
+                  properties:
+                    isPrimary:
+                      description: indicates if an instance is the primary one
+                      type: boolean
+                    timeLineID:
+                      description: indicates on which TimelineId the instance is
+                      type: integer
+                  required:
+                  - isPrimary
+                  type: object
+                description: The reported state of the instances during the last reconciliation
+                  loop
+                type: object
+              instancesStatus:
+                additionalProperties:
+                  items:
+                    type: string
+                  type: array
+                description: InstancesStatus indicates in which status the instances
+                  are
+                type: object
+              jobCount:
+                description: How many Jobs have been created by this cluster
+                format: int32
+                type: integer
+              lastFailedBackup:
+                description: Stored as a date in RFC3339 format
+                type: string
+              lastSuccessfulBackup:
+                description: Stored as a date in RFC3339 format
+                type: string
+              latestGeneratedNode:
+                description: ID of the latest generated node (used to avoid node name
+                  clashing)
+                type: integer
+              managedRolesStatus:
+                description: ManagedRolesStatus reports the state of the managed roles
+                  in the cluster
+                properties:
+                  byStatus:
+                    additionalProperties:
+                      items:
+                        type: string
+                      type: array
+                    description: ByStatus gives the list of roles in each state
+                    type: object
+                  cannotReconcile:
+                    additionalProperties:
+                      items:
+                        type: string
+                      type: array
+                    description: CannotReconcile lists roles that cannot be reconciled
+                      in PostgreSQL, with an explanation of the cause
+                    type: object
+                  passwordStatus:
+                    additionalProperties:
+                      description: PasswordState represents the state of the password
+                        of a managed RoleConfiguration
+                      properties:
+                        resourceVersion:
+                          description: the resource version of the password secret
+                          type: string
+                        transactionID:
+                          description: the last transaction ID to affect the role
+                            definition in PostgreSQL
+                          format: int64
+                          type: integer
+                      type: object
+                    description: PasswordStatus gives the last transaction id and
+                      password secret version for each managed role
+                    type: object
+                type: object
+              onlineUpdateEnabled:
+                description: OnlineUpdateEnabled shows if the online upgrade is enabled
+                  inside the cluster
+                type: boolean
+              phase:
+                description: Current phase of the cluster
+                type: string
+              phaseReason:
+                description: Reason for the current phase
+                type: string
+              poolerIntegrations:
+                description: The integration needed by poolers referencing the cluster
+                properties:
+                  pgBouncerIntegration:
+                    description: PgBouncerIntegrationStatus encapsulates the needed
+                      integration for the pgbouncer poolers referencing the cluster
+                    properties:
+                      secrets:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
+              pvcCount:
+                description: How many PVCs have been created by this cluster
+                format: int32
+                type: integer
+              readService:
+                description: Current list of read pods
+                type: string
+              readyInstances:
+                description: The total number of ready instances in the cluster. It
+                  is equal to the number of ready instance pods.
+                type: integer
+              resizingPVC:
+                description: List of all the PVCs that have ResizingPVC condition.
+                items:
+                  type: string
+                type: array
+              secretsResourceVersion:
+                description: The list of resource versions of the secrets managed
+                  by the operator. Every change here is done in the interest of the
+                  instance manager, which will refresh the secret data
+                properties:
+                  applicationSecretVersion:
+                    description: The resource version of the "app" user secret
+                    type: string
+                  barmanEndpointCA:
+                    description: The resource version of the Barman Endpoint CA if
+                      provided
+                    type: string
+                  caSecretVersion:
+                    description: Unused. Retained for compatibility with old versions.
+                    type: string
+                  clientCaSecretVersion:
+                    description: The resource version of the PostgreSQL client-side
+                      CA secret version
+                    type: string
+                  managedRoleSecretVersion:
+                    additionalProperties:
+                      type: string
+                    description: The resource versions of the managed roles secrets
+                    type: object
+                  metrics:
+                    additionalProperties:
+                      type: string
+                    description: A map with the versions of all the secrets used to
+                      pass metrics. Map keys are the secret names, map values are
+                      the versions
+                    type: object
+                  replicationSecretVersion:
+                    description: The resource version of the "streaming_replica" user
+                      secret
+                    type: string
+                  serverCaSecretVersion:
+                    description: The resource version of the PostgreSQL server-side
+                      CA secret version
+                    type: string
+                  serverSecretVersion:
+                    description: The resource version of the PostgreSQL server-side
+                      secret version
+                    type: string
+                  superuserSecretVersion:
+                    description: The resource version of the "postgres" user secret
+                    type: string
+                type: object
+              targetPrimary:
+                description: Target primary instance, this is different from the previous
+                  one during a switchover or a failover
+                type: string
+              targetPrimaryTimestamp:
+                description: The timestamp when the last request for a new primary
+                  has occurred
+                type: string
+              timelineID:
+                description: The timeline of the Postgres cluster
+                type: integer
+              topology:
+                description: Instances topology.
+                properties:
+                  instances:
+                    additionalProperties:
+                      additionalProperties:
+                        type: string
+                      description: PodTopologyLabels represent the topology of a Pod.
+                        map[labelName]labelValue
+                      type: object
+                    description: Instances contains the pod topology of the instances
+                    type: object
+                  nodesUsed:
+                    description: NodesUsed represents the count of distinct nodes
+                      accommodating the instances. A value of '1' suggests that all
+                      instances are hosted on a single node, implying the absence
+                      of High Availability (HA). Ideally, this value should be the
+                      same as the number of instances in the Postgres HA cluster,
+                      implying shared nothing architecture on the compute side.
+                    format: int32
+                    type: integer
+                  successfullyExtracted:
+                    description: SuccessfullyExtracted indicates if the topology data
+                      was extract. It is useful to enact fallback behaviors in synchronous
+                      replica election in case of failures
+                    type: boolean
+                type: object
+              unusablePVC:
+                description: List of all the PVCs that are unusable because another
+                  PVC is missing
+                items:
+                  type: string
+                type: array
+              writeService:
+                description: Current write pod
+                type: string
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      scale:
+        specReplicasPath: .spec.instances
+        statusReplicasPath: .status.instances
+      status: {}
