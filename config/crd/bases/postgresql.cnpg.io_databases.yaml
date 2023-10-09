@@ -46,14 +46,22 @@ spec:
               info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
             properties:
               bootstrap:
-                description: Instructions to bootstrap this cluster
+                description: Instructions to bootstrap this database
                 properties:
                   initdb:
                     description: Bootstrap the cluster via initdb
                     properties:
+                      dataChecksums:
+                        description: 'Whether the `-k` option should be passed to
+                          initdb, enabling checksums on data pages (default: `false`)'
+                        type: boolean
                       database:
                         description: 'Name of the database used by the application.
                           Default: `app`.'
+                        type: string
+                      encoding:
+                        description: The value to be passed as option `--encoding`
+                          for initdb (default:`UTF8`)
                         type: string
                       import:
                         description: Bootstraps the new cluster by importing data
@@ -95,15 +103,34 @@ spec:
                             - externalCluster
                             type: object
                           type:
-                            description: The import type. Can be `microservice`
+                            description: The import type. Can be `microservice` or
+                              `monolith`.
                             enum:
                             - microservice
+                            - monolith
                             type: string
                         required:
                         - databases
                         - source
                         - type
                         type: object
+                      localeCType:
+                        description: The value to be passed as option `--lc-ctype`
+                          for initdb (default:`C`)
+                        type: string
+                      localeCollate:
+                        description: The value to be passed as option `--lc-collate`
+                          for initdb (default:`C`)
+                        type: string
+                      options:
+                        description: 'The list of options that must be passed to initdb
+                          when creating the cluster. Deprecated: This could lead to
+                          inconsistent configurations, please use the explicit provided
+                          parameters instead. If defined, explicit values will be
+                          ignored.'
+                        items:
+                          type: string
+                        type: array
                       owner:
                         description: Name of the owner of the database in the instance
                           to be used by applications. Defaults to the value of the
@@ -161,6 +188,13 @@ spec:
                               type: object
                             type: array
                         type: object
+                      postInitSQL:
+                        description: List of SQL queries to be executed as a superuser
+                          immediately after the cluster has been created - to be used
+                          with extreme care (by default empty)
+                        items:
+                          type: string
+                        type: array
                       postInitTemplateSQL:
                         description: List of SQL queries to be executed as a superuser
                           in the `template1` after the cluster has been created -
@@ -179,6 +213,13 @@ spec:
                         required:
                         - name
                         type: object
+                      walSegmentSize:
+                        description: 'The value in megabytes (1 to 1024) to be passed
+                          to the `--wal-segsize` option for initdb (default: empty,
+                          resulting in PostgreSQL default: 16MB)'
+                        maximum: 1024
+                        minimum: 1
+                        type: integer
                     type: object
                   pg_basebackup:
                     description: Bootstrap the cluster taking a physical backup of
@@ -366,155 +407,21 @@ spec:
                         type: object
                     type: object
                 type: object
+              cluster:
+                description: The cluster to add this database on
+                properties:
+                  name:
+                    description: Name of the referent.
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
               description:
                 description: Description of this PostgreSQL database
                 type: string
-              env:
-                description: Env follows the Env format to pass environment variables
-                  to the pods created in the cluster
-                items:
-                  description: EnvVar represents an environment variable present in
-                    a Container.
-                  properties:
-                    name:
-                      description: Name of the environment variable. Must be a C_IDENTIFIER.
-                      type: string
-                    value:
-                      description: 'Variable references $(VAR_NAME) are expanded using
-                        the previously defined environment variables in the container
-                        and any service environment variables. If a variable cannot
-                        be resolved, the reference in the input string will be unchanged.
-                        Double $$ are reduced to a single $, which allows for escaping
-                        the $(VAR_NAME) syntax: i.e. "$$(VAR_NAME)" will produce the
-                        string literal "$(VAR_NAME)". Escaped references will never
-                        be expanded, regardless of whether the variable exists or
-                        not. Defaults to "".'
-                      type: string
-                    valueFrom:
-                      description: Source for the environment variable's value. Cannot
-                        be used if value is not empty.
-                      properties:
-                        configMapKeyRef:
-                          description: Selects a key of a ConfigMap.
-                          properties:
-                            key:
-                              description: The key to select.
-                              type: string
-                            name:
-                              description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                TODO: Add other useful fields. apiVersion, kind, uid?'
-                              type: string
-                            optional:
-                              description: Specify whether the ConfigMap or its key
-                                must be defined
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                          x-kubernetes-map-type: atomic
-                        fieldRef:
-                          description: 'Selects a field of the pod: supports metadata.name,
-                            metadata.namespace, `metadata.labels[''<KEY>'']`, `metadata.annotations[''<KEY>'']`,
-                            spec.nodeName, spec.serviceAccountName, status.hostIP,
-                            status.podIP, status.podIPs.'
-                          properties:
-                            apiVersion:
-                              description: Version of the schema the FieldPath is
-                                written in terms of, defaults to "v1".
-                              type: string
-                            fieldPath:
-                              description: Path of the field to select in the specified
-                                API version.
-                              type: string
-                          required:
-                          - fieldPath
-                          type: object
-                          x-kubernetes-map-type: atomic
-                        resourceFieldRef:
-                          description: 'Selects a resource of the container: only
-                            resources limits and requests (limits.cpu, limits.memory,
-                            limits.ephemeral-storage, requests.cpu, requests.memory
-                            and requests.ephemeral-storage) are currently supported.'
-                          properties:
-                            containerName:
-                              description: 'Container name: required for volumes,
-                                optional for env vars'
-                              type: string
-                            divisor:
-                              anyOf:
-                              - type: integer
-                              - type: string
-                              description: Specifies the output format of the exposed
-                                resources, defaults to "1"
-                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                              x-kubernetes-int-or-string: true
-                            resource:
-                              description: 'Required: resource to select'
-                              type: string
-                          required:
-                          - resource
-                          type: object
-                          x-kubernetes-map-type: atomic
-                        secretKeyRef:
-                          description: Selects a key of a secret in the pod's namespace
-                          properties:
-                            key:
-                              description: The key of the secret to select from.  Must
-                                be a valid secret key.
-                              type: string
-                            name:
-                              description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                TODO: Add other useful fields. apiVersion, kind, uid?'
-                              type: string
-                            optional:
-                              description: Specify whether the Secret or its key must
-                                be defined
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                          x-kubernetes-map-type: atomic
-                      type: object
-                  required:
-                  - name
-                  type: object
-                type: array
-              envFrom:
-                description: EnvFrom follows the EnvFrom format to pass environment
-                  variables sources to the pods to be used by Env
-                items:
-                  description: EnvFromSource represents the source of a set of ConfigMaps
-                  properties:
-                    configMapRef:
-                      description: The ConfigMap to select from
-                      properties:
-                        name:
-                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            TODO: Add other useful fields. apiVersion, kind, uid?'
-                          type: string
-                        optional:
-                          description: Specify whether the ConfigMap must be defined
-                          type: boolean
-                      type: object
-                      x-kubernetes-map-type: atomic
-                    prefix:
-                      description: An optional identifier to prepend to each key in
-                        the ConfigMap. Must be a C_IDENTIFIER.
-                      type: string
-                    secretRef:
-                      description: The Secret to select from
-                      properties:
-                        name:
-                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            TODO: Add other useful fields. apiVersion, kind, uid?'
-                          type: string
-                        optional:
-                          description: Specify whether the Secret must be defined
-                          type: boolean
-                      type: object
-                      x-kubernetes-map-type: atomic
-                  type: object
-                type: array
               externalClusters:
                 description: The list of external clusters which are used in the configuration
                 items:
@@ -1049,234 +956,16 @@ spec:
                 - metadata
                 type: object
             required:
-            - bootstrap
+            - cluster
             type: object
           status:
             description: 'Most recently observed status of the cluster. This data
               may not be up to date. Populated by the system. Read-only. More info:
               https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status'
             properties:
-              azurePVCUpdateEnabled:
-                description: AzurePVCUpdateEnabled shows if the PVC online upgrade
-                  is enabled for this cluster
-                type: boolean
-              certificates:
-                description: The configuration for the CA and related certificates,
-                  initialized with defaults.
-                properties:
-                  clientCASecret:
-                    description: 'The secret containing the Client CA certificate.
-                      If not defined, a new secret will be created with a self-signed
-                      CA and will be used to generate all the client certificates.<br
-                      /> <br /> Contains:<br /> <br /> - `ca.crt`: CA that should
-                      be used to validate the client certificates, used as `ssl_ca_file`
-                      of all the instances.<br /> - `ca.key`: key used to generate
-                      client certificates, if ReplicationTLSSecret is provided, this
-                      can be omitted.<br />'
-                    type: string
-                  expirations:
-                    additionalProperties:
-                      type: string
-                    description: Expiration dates for all certificates.
-                    type: object
-                  replicationTLSSecret:
-                    description: The secret of type kubernetes.io/tls containing the
-                      client certificate to authenticate as the `streaming_replica`
-                      user. If not defined, ClientCASecret must provide also `ca.key`,
-                      and a new secret will be created using the provided CA.
-                    type: string
-                  serverAltDNSNames:
-                    description: The list of the server alternative DNS names to be
-                      added to the generated server TLS certificates, when required.
-                    items:
-                      type: string
-                    type: array
-                  serverCASecret:
-                    description: 'The secret containing the Server CA certificate.
-                      If not defined, a new secret will be created with a self-signed
-                      CA and will be used to generate the TLS certificate ServerTLSSecret.<br
-                      /> <br /> Contains:<br /> <br /> - `ca.crt`: CA that should
-                      be used to validate the server certificate, used as `sslrootcert`
-                      in client connection strings.<br /> - `ca.key`: key used to
-                      generate Server SSL certs, if ServerTLSSecret is provided, this
-                      can be omitted.<br />'
-                    type: string
-                  serverTLSSecret:
-                    description: The secret of type kubernetes.io/tls containing the
-                      server TLS certificate and key that will be set as `ssl_cert_file`
-                      and `ssl_key_file` so that clients can connect to postgres securely.
-                      If not defined, ServerCASecret must provide also `ca.key` and
-                      a new secret will be created using the provided CA.
-                    type: string
-                type: object
-              cloudNativePGCommitHash:
-                description: The commit hash number of which this operator running
-                type: string
-              cloudNativePGOperatorHash:
-                description: The hash of the binary of the operator
-                type: string
-              conditions:
-                description: Conditions for cluster object
-                items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource. --- This struct is intended for direct
-                    use as an array at the field path .status.conditions.  For example,
-                    \n type FooStatus struct{ // Represents the observations of a
-                    foo's current state. // Known .status.conditions.type are: \"Available\",
-                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
-                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
-                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
-                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
-                  properties:
-                    lastTransitionTime:
-                      description: lastTransitionTime is the last time the condition
-                        transitioned from one status to another. This should be when
-                        the underlying condition changed.  If that is not known, then
-                        using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: message is a human readable message indicating
-                        details about the transition. This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: observedGeneration represents the .metadata.generation
-                        that the condition was set based upon. For instance, if .metadata.generation
-                        is currently 12, but the .status.conditions[x].observedGeneration
-                        is 9, the condition is out of date with respect to the current
-                        state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: reason contains a programmatic identifier indicating
-                        the reason for the condition's last transition. Producers
-                        of specific condition types may define expected values and
-                        meanings for this field, and whether the values are considered
-                        a guaranteed API. The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                        --- Many .condition.type values are consistent across resources
-                        like Available, but because arbitrary conditions can be useful
-                        (see .node.status.conditions), the ability to deconflict is
-                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
-                  type: object
-                type: array
-              configMapResourceVersion:
-                description: The list of resource versions of the configmaps, managed
-                  by the operator. Every change here is done in the interest of the
-                  instance manager, which will refresh the configmap data
-                properties:
-                  metrics:
-                    additionalProperties:
-                      type: string
-                    description: A map with the versions of all the config maps used
-                      to pass metrics. Map keys are the config map names, map values
-                      are the versions
-                    type: object
-                type: object
-              currentPrimary:
-                description: Current primary instance
-                type: string
-              currentPrimaryFailingSinceTimestamp:
-                description: The timestamp when the primary was detected to be unhealthy
-                  This field is reported when spec.failoverDelay is populated or during
-                  online upgrades
-                type: string
-              currentPrimaryTimestamp:
-                description: The timestamp when the last actual promotion to primary
-                  has occurred
-                type: string
-              danglingPVC:
-                description: List of all the PVCs created by this cluster and still
-                  available which are not attached to a Pod
-                items:
-                  type: string
-                type: array
-              firstRecoverabilityPoint:
-                description: The first recoverability point, stored as a date in RFC3339
-                  format
-                type: string
-              healthyPVC:
-                description: List of all the PVCs not dangling nor initializing
-                items:
-                  type: string
-                type: array
-              initializingPVC:
-                description: List of all the PVCs that are being initialized by this
-                  cluster
-                items:
-                  type: string
-                type: array
-              instanceNames:
-                description: List of instance names in the cluster
-                items:
-                  type: string
-                type: array
-              instances:
-                description: The total number of PVC Groups detected in the cluster.
-                  It may differ from the number of existing instance pods.
-                type: integer
-              instancesReportedState:
-                additionalProperties:
-                  description: InstanceReportedState describes the last reported state
-                    of an instance during a reconciliation loop
-                  properties:
-                    isPrimary:
-                      description: indicates if an instance is the primary one
-                      type: boolean
-                    timeLineID:
-                      description: indicates on which TimelineId the instance is
-                      type: integer
-                  required:
-                  - isPrimary
-                  type: object
-                description: The reported state of the instances during the last reconciliation
-                  loop
-                type: object
-              instancesStatus:
-                additionalProperties:
-                  items:
-                    type: string
-                  type: array
-                description: InstancesStatus indicates in which status the instances
-                  are
-                type: object
               jobCount:
                 description: How many Jobs have been created by this cluster
                 format: int32
-                type: integer
-              lastFailedBackup:
-                description: Stored as a date in RFC3339 format
-                type: string
-              lastSuccessfulBackup:
-                description: Stored as a date in RFC3339 format
-                type: string
-              latestGeneratedNode:
-                description: ID of the latest generated node (used to avoid node name
-                  clashing)
                 type: integer
               managedRolesStatus:
                 description: ManagedRolesStatus reports the state of the managed roles
@@ -1315,45 +1004,12 @@ spec:
                       password secret version for each managed role
                     type: object
                 type: object
-              onlineUpdateEnabled:
-                description: OnlineUpdateEnabled shows if the online upgrade is enabled
-                  inside the cluster
-                type: boolean
               phase:
                 description: Current phase of the cluster
                 type: string
               phaseReason:
                 description: Reason for the current phase
                 type: string
-              poolerIntegrations:
-                description: The integration needed by poolers referencing the cluster
-                properties:
-                  pgBouncerIntegration:
-                    description: PgBouncerIntegrationStatus encapsulates the needed
-                      integration for the pgbouncer poolers referencing the cluster
-                    properties:
-                      secrets:
-                        items:
-                          type: string
-                        type: array
-                    type: object
-                type: object
-              pvcCount:
-                description: How many PVCs have been created by this cluster
-                format: int32
-                type: integer
-              readService:
-                description: Current list of read pods
-                type: string
-              readyInstances:
-                description: The total number of ready instances in the cluster. It
-                  is equal to the number of ready instance pods.
-                type: integer
-              resizingPVC:
-                description: List of all the PVCs that have ResizingPVC condition.
-                items:
-                  type: string
-                type: array
               secretsResourceVersion:
                 description: The list of resource versions of the secrets managed
                   by the operator. Every change here is done in the interest of the
@@ -1362,92 +1018,12 @@ spec:
                   applicationSecretVersion:
                     description: The resource version of the "app" user secret
                     type: string
-                  barmanEndpointCA:
-                    description: The resource version of the Barman Endpoint CA if
-                      provided
-                    type: string
-                  caSecretVersion:
-                    description: Unused. Retained for compatibility with old versions.
-                    type: string
-                  clientCaSecretVersion:
-                    description: The resource version of the PostgreSQL client-side
-                      CA secret version
-                    type: string
                   managedRoleSecretVersion:
                     additionalProperties:
                       type: string
                     description: The resource versions of the managed roles secrets
                     type: object
-                  metrics:
-                    additionalProperties:
-                      type: string
-                    description: A map with the versions of all the secrets used to
-                      pass metrics. Map keys are the secret names, map values are
-                      the versions
-                    type: object
-                  replicationSecretVersion:
-                    description: The resource version of the "streaming_replica" user
-                      secret
-                    type: string
-                  serverCaSecretVersion:
-                    description: The resource version of the PostgreSQL server-side
-                      CA secret version
-                    type: string
-                  serverSecretVersion:
-                    description: The resource version of the PostgreSQL server-side
-                      secret version
-                    type: string
-                  superuserSecretVersion:
-                    description: The resource version of the "postgres" user secret
-                    type: string
                 type: object
-              targetPrimary:
-                description: Target primary instance, this is different from the previous
-                  one during a switchover or a failover
-                type: string
-              targetPrimaryTimestamp:
-                description: The timestamp when the last request for a new primary
-                  has occurred
-                type: string
-              timelineID:
-                description: The timeline of the Postgres cluster
-                type: integer
-              topology:
-                description: Instances topology.
-                properties:
-                  instances:
-                    additionalProperties:
-                      additionalProperties:
-                        type: string
-                      description: PodTopologyLabels represent the topology of a Pod.
-                        map[labelName]labelValue
-                      type: object
-                    description: Instances contains the pod topology of the instances
-                    type: object
-                  nodesUsed:
-                    description: NodesUsed represents the count of distinct nodes
-                      accommodating the instances. A value of '1' suggests that all
-                      instances are hosted on a single node, implying the absence
-                      of High Availability (HA). Ideally, this value should be the
-                      same as the number of instances in the Postgres HA cluster,
-                      implying shared nothing architecture on the compute side.
-                    format: int32
-                    type: integer
-                  successfullyExtracted:
-                    description: SuccessfullyExtracted indicates if the topology data
-                      was extract. It is useful to enact fallback behaviors in synchronous
-                      replica election in case of failures
-                    type: boolean
-                type: object
-              unusablePVC:
-                description: List of all the PVCs that are unusable because another
-                  PVC is missing
-                items:
-                  type: string
-                type: array
-              writeService:
-                description: Current write pod
-                type: string
             type: object
         required:
         - metadata
@@ -1456,7 +1032,4 @@ spec:
     served: true
     storage: true
     subresources:
-      scale:
-        specReplicasPath: .spec.instances
-        statusReplicasPath: .status.instances
       status: {}

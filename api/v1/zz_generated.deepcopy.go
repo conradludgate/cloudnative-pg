@@ -994,11 +994,6 @@ func (in *DatabaseSpec) DeepCopyInto(out *DatabaseSpec) {
 		*out = new(ServiceAccountTemplate)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.Monitoring != nil {
-		in, out := &in.Monitoring, &out.Monitoring
-		*out = new(MonitoringConfiguration)
-		(*in).DeepCopyInto(*out)
-	}
 	if in.ExternalClusters != nil {
 		in, out := &in.ExternalClusters, &out.ExternalClusters
 		*out = make([]ExternalCluster, len(*in))

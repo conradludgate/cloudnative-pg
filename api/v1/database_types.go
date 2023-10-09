@@ -55,6 +55,9 @@ const (
 
 // DatabaseSpec defines the desired state of Database
 type DatabaseSpec struct {
+	// Instructions to bootstrap this database
+	Bootstrap *BootstrapConfiguration `json:"bootstrap,omitempty"`
+
 	// The cluster to add this database on
 	Cluster GlobalObjectReference `json:"cluster"`
 
@@ -66,31 +69,6 @@ type DatabaseSpec struct {
 	// +optional
 	InheritedMetadata *EmbeddedObjectMetadata `json:"inheritedMetadata,omitempty"`
 
-	// // Name of the container image, supporting both tags (`<image>:<tag>`)
-	// // and digests for deterministic and repeatable deployments
-	// // (`<image>:<tag>@sha256:<digestValue>`)
-	// // +optional
-	// ImageName string `json:"imageName,omitempty"`
-
-	// // Image pull policy.
-	// // One of `Always`, `Never` or `IfNotPresent`.
-	// // If not defined, it defaults to `IfNotPresent`.
-	// // Cannot be updated.
-	// // More info: https://kubernetes.io/docs/concepts/containers/images#updating-images
-	// // +optional
-	// ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
-
-	// // If specified, the pod will be dispatched by specified Kubernetes
-	// // scheduler. If not specified, the pod will be dispatched by the default
-	// // scheduler. More info:
-	// // https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/
-	// // +optional
-	// SchedulerName string `json:"schedulerName,omitempty"`
-
-	// Instructions to bootstrap this cluster
-	// +optional
-	Bootstrap *BootstrapConfiguration `json:"bootstrap,omitempty"`
-
 	// Configure the generation of the service account
 	// +optional
 	ServiceAccountTemplate *ServiceAccountTemplate `json:"serviceAccountTemplate,omitempty"`
@@ -98,10 +76,6 @@ type DatabaseSpec struct {
 	// // The configuration to be used for backups
 	// // +optional
 	// Backup *BackupConfiguration `json:"backup,omitempty"`
-
-	// The configuration of the monitoring infrastructure of this cluster
-	// +optional
-	Monitoring *MonitoringConfiguration `json:"monitoring,omitempty"`
 
 	// The list of external clusters which are used in the configuration
 	// +optional
@@ -666,12 +640,9 @@ type DatabaseStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:subresource:scale:specpath=.spec.instances,statuspath=.status.instances
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:printcolumn:name="Instances",type="integer",JSONPath=".status.instances",description="Number of instances"
-// +kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.readyInstances",description="Number of ready instances"
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase",description="Cluster current status"
-// +kubebuilder:printcolumn:name="Primary",type="string",JSONPath=".status.currentPrimary",description="Primary pod"
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.cluster.name"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 
 // Database is the Schema for the PostgreSQL API
 type Database struct {
@@ -1057,15 +1028,6 @@ func (cluster *Database) UsesSecret(secret string) bool {
 // 	}
 // 	return false
 // }
-
-// IsPodMonitorEnabled checks if the PodMonitor object needs to be created
-func (cluster *Database) IsPodMonitorEnabled() bool {
-	if cluster.Spec.Monitoring != nil {
-		return cluster.Spec.Monitoring.EnablePodMonitor
-	}
-
-	return false
-}
 
 // SetInheritedDataAndOwnership sets the cluster as owner of the passed object and then
 // sets all the needed annotations and labels
