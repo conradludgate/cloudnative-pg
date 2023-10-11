@@ -592,6 +592,20 @@ func NewConnectionPool() *pool.ConnectionPool {
 	return pool.NewConnectionPool(dsn)
 }
 
+func NewDatabaseConnectionPool() *pool.ConnectionPool {
+	const applicationName = "cnpg-instance-manager"
+	socketDir := GetSocketDir()
+	dsn := fmt.Sprintf(
+		"host=%s port=%v user=%v sslmode=disable application_name=%v",
+		socketDir,
+		GetServerPort(),
+		"postgres",
+		applicationName,
+	)
+
+	return pool.NewConnectionPool(dsn)
+}
+
 // ConnectionPool gets or initializes the connection pool for this instance
 func (instance *Instance) ConnectionPool() *pool.ConnectionPool {
 	if instance.pool == nil {

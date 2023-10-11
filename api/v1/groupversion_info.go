@@ -45,6 +45,9 @@ var (
 	// ClusterKind is the kind name of Clusters
 	ClusterKind = "Cluster"
 
+	// DatabaseKind is the kind name of Databases
+	DatabaseKind = "Database"
+
 	// BackupKind is the kind name of Backups
 	BackupKind = "Backup"
 

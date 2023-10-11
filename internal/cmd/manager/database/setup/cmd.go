@@ -36,17 +36,16 @@ import (
 func NewCmd() *cobra.Command {
 	var appDBName string
 	var appUser string
-	var clusterName string
+	var databaseName string
 	var namespace string
 	var postInitApplicationSQLStr string
-	var postInitTemplateSQLStr string
 	var postInitApplicationSQLRefsFolder string
 
 	cmd := &cobra.Command{
 		Use: "setupdb [options]",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			return management.WaitKubernetesAPIServer(cmd.Context(), ctrl.ObjectKey{
-				Name:      clusterName,
+			return management.WaitKubernetesAPIServerDatabase(cmd.Context(), ctrl.ObjectKey{
+				Name:      databaseName,
 				Namespace: namespace,
 			})
 		},
@@ -59,19 +58,12 @@ func NewCmd() *cobra.Command {
 				return err
 			}
 
-			postInitTemplateSQL, err := shellquote.Split(postInitTemplateSQLStr)
-			if err != nil {
-				log.Error(err, "Error while parsing post init template SQL queries")
-				return err
-			}
-
 			info := postgres.InitDbInfo{
 				ApplicationDatabase:    appDBName,
 				ApplicationUser:        appUser,
-				ClusterName:            clusterName,
+				DatabaseName:           databaseName,
 				Namespace:              namespace,
 				PostInitApplicationSQL: postInitApplicationSQL,
-				PostInitTemplateSQL:    postInitTemplateSQL,
 				// if the value to postInitApplicationSQLRefsFolder is empty,
 				// bootstrap will do nothing for post init application SQL refs.
 				PostInitApplicationSQLRefsFolder: postInitApplicationSQLRefsFolder,
@@ -92,14 +84,12 @@ func NewCmd() *cobra.Command {
 		"The name of the application containing the database")
 	cmd.Flags().StringVar(&appUser, "app-user", "app",
 		"The name of the application user")
-	cmd.Flags().StringVar(&clusterName, "cluster-name", os.Getenv("CLUSTER_NAME"), "The name of the "+
+	cmd.Flags().StringVar(&databaseName, "database-name", os.Getenv("DATABASE_NAME"), "The name of the "+
 		"current cluster in k8s, used to coordinate switchover and failover")
 	cmd.Flags().StringVar(&namespace, "namespace", os.Getenv("NAMESPACE"), "The namespace of "+
 		"the cluster and the pod in k8s")
 	cmd.Flags().StringVar(&postInitApplicationSQLStr, "post-init-application-sql", "", "The list of SQL queries to be "+
 		"executed inside application database right after the database is created")
-	cmd.Flags().StringVar(&postInitTemplateSQLStr, "post-init-template-sql", "", "The list of SQL queries to be "+
-		"executed inside template1 database to configure the new instance")
 	cmd.Flags().StringVar(&postInitApplicationSQLRefsFolder, "post-init-application-sql-refs-folder",
 		"", "The folder contains a set of SQL files to be executed in alphabetical order "+
 			"against the application database immediately after its creationd")

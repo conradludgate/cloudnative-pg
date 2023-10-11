@@ -77,7 +77,7 @@ func NewControllerRuntimeClient() (client.WithWatch, error) {
 	// add here any resource that need to be registered.
 	objectsToRegister := []runtime.Object{
 		// custom resources
-		&apiv1.Cluster{}, &apiv1.Backup{}, &apiv1.Pooler{},
+		&apiv1.Cluster{}, &apiv1.Backup{}, &apiv1.Pooler{}, &apiv1.Database{},
 		// k8s resources needed for the typedClient to work properly
 		&v1.ConfigMap{}, &v1.Secret{},
 	}
@@ -142,6 +142,28 @@ func WaitKubernetesAPIServer(ctx context.Context, clusterObjectKey client.Object
 
 	if err := retry.OnError(readinessCheckRetry, resources.RetryAlways, func() (err error) {
 		return cli.Get(ctx, clusterObjectKey, &apiv1.Cluster{})
+	}); err != nil {
+		const message = "error while waiting for the API server to be reachable"
+		logger.Error(err, message)
+		return fmt.Errorf("%s: %w", message, err)
+	}
+
+	return nil
+}
+
+// WaitKubernetesAPIServer will wait for the kubernetes API server to by ready.
+// Returns any error if it can't be reached.
+func WaitKubernetesAPIServerDatabase(ctx context.Context, databaseObjectKey client.ObjectKey) error {
+	logger := log.FromContext(ctx)
+
+	cli, err := NewControllerRuntimeClient()
+	if err != nil {
+		logger.Error(err, "error while creating a standalone Kubernetes client")
+		return err
+	}
+
+	if err := retry.OnError(readinessCheckRetry, resources.RetryAlways, func() (err error) {
+		return cli.Get(ctx, databaseObjectKey, &apiv1.Database{})
 	}); err != nil {
 		const message = "error while waiting for the API server to be reachable"
 		logger.Error(err, message)

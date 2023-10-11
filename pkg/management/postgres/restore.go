@@ -398,7 +398,7 @@ func (info InitInfo) loadCluster(ctx context.Context, typedClient client.Client)
 // loadCluster loads the database definition from the API server
 func (info InitDbInfo) loadDatabase(ctx context.Context, typedClient client.Client) (*apiv1.Database, error) {
 	var cluster apiv1.Database
-	err := typedClient.Get(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.ApplicationDatabase}, &cluster)
+	err := typedClient.Get(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.DatabaseName}, &cluster)
 	if err != nil {
 		return nil, err
 	}

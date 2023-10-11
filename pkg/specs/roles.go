@@ -136,6 +136,124 @@ func CreateRole(cluster apiv1.Cluster, backupOrigin *apiv1.Backup) rbacv1.Role {
 	}
 }
 
+// CreateRole create a role with the permissions needed by the instance manager
+func CreateDbRole(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *apiv1.Backup) rbacv1.Role {
+	rules := []rbacv1.PolicyRule{
+		// {
+		// 	APIGroups: []string{
+		// 		"",
+		// 	},
+		// 	Resources: []string{
+		// 		"configmaps",
+		// 	},
+		// 	Verbs: []string{
+		// 		"get",
+		// 		"watch",
+		// 	},
+		// 	ResourceNames: getInvolvedConfigMapNames(cluster),
+		// },
+		{
+			APIGroups: []string{
+				"",
+			},
+			Resources: []string{
+				"secrets",
+			},
+			Verbs: []string{
+				"get",
+				"watch",
+			},
+			ResourceNames: getInvolvedDbSecretNames(cluster, database, backupOrigin),
+		},
+		{
+			APIGroups: []string{
+				"postgresql.cnpg.io",
+			},
+			Resources: []string{
+				"clusters",
+			},
+			Verbs: []string{
+				"get",
+				"list",
+				"watch",
+			},
+			ResourceNames: []string{
+				database.Spec.Cluster.Name,
+			},
+		},
+		{
+			APIGroups: []string{
+				"postgresql.cnpg.io",
+			},
+			Resources: []string{
+				"clusters/status",
+			},
+			Verbs: []string{
+				"get",
+				"patch",
+				"update",
+				"watch",
+			},
+			ResourceNames: []string{
+				database.Spec.Cluster.Name,
+			},
+		},
+		{
+			APIGroups: []string{
+				"postgresql.cnpg.io",
+			},
+			Resources: []string{
+				"databases",
+			},
+			Verbs: []string{
+				"get",
+				"list",
+				"watch",
+			},
+			ResourceNames: []string{
+				database.Name,
+			},
+		},
+		{
+			APIGroups: []string{
+				"postgresql.cnpg.io",
+			},
+			Resources: []string{
+				"databases/status",
+			},
+			Verbs: []string{
+				"get",
+				"patch",
+				"update",
+				"watch",
+			},
+			ResourceNames: []string{
+				database.Name,
+			},
+		},
+		{
+			APIGroups: []string{
+				"",
+			},
+			Resources: []string{
+				"events",
+			},
+			Verbs: []string{
+				"create",
+				"patch",
+			},
+		},
+	}
+
+	return rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: database.Spec.Cluster.Namespace,
+			Name:      database.Name,
+		},
+		Rules: rules,
+	}
+}
+
 func getInvolvedSecretNames(cluster apiv1.Cluster, backupOrigin *apiv1.Backup) []string {
 	involvedSecretNames := []string{
 		cluster.GetReplicationSecretName(),
@@ -154,8 +272,20 @@ func getInvolvedSecretNames(cluster apiv1.Cluster, backupOrigin *apiv1.Backup) [
 	}
 
 	involvedSecretNames = append(involvedSecretNames, backupSecrets(cluster, backupOrigin)...)
-	involvedSecretNames = append(involvedSecretNames, externalClusterSecrets(cluster)...)
+	involvedSecretNames = append(involvedSecretNames, externalClusterSecrets(cluster.Spec.ExternalClusters)...)
 	involvedSecretNames = append(involvedSecretNames, managedRolesSecrets(cluster)...)
+
+	return cleanupResourceList(involvedSecretNames)
+}
+
+func getInvolvedDbSecretNames(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *apiv1.Backup) []string {
+	involvedSecretNames := []string{
+		database.GetApplicationSecretName(),
+	}
+
+	involvedSecretNames = append(involvedSecretNames, backupSecrets(cluster, backupOrigin)...)
+	involvedSecretNames = append(involvedSecretNames, externalClusterSecrets(database.Spec.ExternalClusters)...)
+	// involvedSecretNames = append(involvedSecretNames, managedRolesSecrets(cluster)...)
 
 	return cleanupResourceList(involvedSecretNames)
 }
@@ -185,10 +315,10 @@ func cleanupResourceList(resourceList []string) []string {
 	})
 }
 
-func externalClusterSecrets(cluster apiv1.Cluster) []string {
+func externalClusterSecrets(clusters []apiv1.ExternalCluster) []string {
 	var result []string
 
-	for _, server := range cluster.Spec.ExternalClusters {
+	for _, server := range clusters {
 		if server.SSLCert != nil {
 			result = append(result,
 				server.SSLCert.Name)

@@ -104,6 +104,54 @@ func createPostgresVolumes(cluster apiv1.Cluster, podName string) []corev1.Volum
 	return result
 }
 
+func createPostgresSetupVolumes(cluster apiv1.Cluster, database apiv1.Database, podName string) []corev1.Volume {
+	result := []corev1.Volume{
+		{
+			Name: "scratch-data",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					SizeLimit: cluster.Spec.EphemeralVolumesSizeLimit.GetTemporaryDataLimit(),
+				},
+			},
+		},
+		{
+			Name: "shm",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					Medium:    "Memory",
+					SizeLimit: cluster.Spec.EphemeralVolumesSizeLimit.GetShmLimit(),
+				},
+			},
+		},
+	}
+
+	if cluster.GetEnableSuperuserAccess() {
+		result = append(result,
+			corev1.Volume{
+				Name: "superuser-secret",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: cluster.GetSuperuserSecretName(),
+					},
+				},
+			},
+		)
+	}
+
+	result = append(result,
+		corev1.Volume{
+			Name: "app-secret",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: database.GetApplicationSecretName(),
+				},
+			},
+		},
+	)
+
+	return result
+}
+
 func createVolumesAndVolumeMountsForPostInitApplicationSQLRefs(
 	refs *apiv1.PostInitApplicationSQLRefs,
 ) ([]corev1.Volume, []corev1.VolumeMount) {
@@ -220,6 +268,41 @@ func createPostgresVolumeMounts(cluster apiv1.Cluster) []corev1.VolumeMount {
 			},
 		)
 	}
+
+	return volumeMounts
+}
+
+func createPostgresSetupVolumeMounts(cluster apiv1.Cluster, database apiv1.Database) []corev1.VolumeMount {
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "scratch-data",
+			MountPath: "/run",
+		},
+		{
+			Name:      "scratch-data",
+			MountPath: postgres.ScratchDataDirectory,
+		},
+		{
+			Name:      "shm",
+			MountPath: "/dev/shm",
+		},
+	}
+
+	if cluster.GetEnableSuperuserAccess() {
+		volumeMounts = append(volumeMounts,
+			corev1.VolumeMount{
+				Name:      "superuser-secret",
+				MountPath: "/etc/superuser-secret",
+			},
+		)
+	}
+
+	volumeMounts = append(volumeMounts,
+		corev1.VolumeMount{
+			Name:      "app-secret",
+			MountPath: "/etc/app-secret",
+		},
+	)
 
 	return volumeMounts
 }

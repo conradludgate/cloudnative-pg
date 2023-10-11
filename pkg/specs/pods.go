@@ -172,7 +172,7 @@ func CreatePodEnvConfig2(database apiv1.Database, podName string) EnvConfig {
 				Value: database.Namespace,
 			},
 			{
-				Name:  "CLUSTER_NAME",
+				Name:  "DATABASE_NAME",
 				Value: database.Name,
 			},
 			{

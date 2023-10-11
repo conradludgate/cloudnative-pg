@@ -25,7 +25,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,17 +41,18 @@ import (
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/log"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/resources/instance"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 )
 
-// const (
-// 	podOwnerKey                   = ".metadata.controller"
-// 	pvcOwnerKey                   = ".metadata.controller"
-// 	jobOwnerKey                   = ".metadata.controller"
-// 	poolerClusterKey              = ".spec.cluster.name"
-// 	disableDefaultQueriesSpecPath = ".spec.monitoring.disableDefaultQueries"
-// )
+const (
+	dbPodOwnerKey = ".metadata.controller.database"
+	// pvcOwnerKey                   = ".metadata.controller.database"
+	dbJobOwnerKey = ".metadata.controller.database"
+	// poolerClusterKey              = ".spec.cluster.name"
+	// disableDefaultQueriesSpecPath = ".spec.monitoring.disableDefaultQueries"
+)
 
 // var apiGVString = apiv1.GroupVersion.String()
 
@@ -64,17 +64,17 @@ type DatabaseReconciler struct {
 	Scheme          *runtime.Scheme
 	Recorder        record.EventRecorder
 
-	// *instance.StatusClient
+	*instance.StatusClient
 }
 
 // NewDatabaseReconciler creates a new DatabaseReconciler initializing it
 func NewDatabaseReconciler(mgr manager.Manager, discoveryClient *discovery.DiscoveryClient) *DatabaseReconciler {
 	return &DatabaseReconciler{
-		// StatusClient:    instance.NewStatusClient(),
+		StatusClient:    instance.NewStatusClient(),
 		DiscoveryClient: discoveryClient,
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("cloudnative-pg"),
+		Recorder:        mgr.GetEventRecorderFor("cloudnative-pg-database"),
 	}
 }
 
@@ -82,30 +82,17 @@ func NewDatabaseReconciler(mgr manager.Manager, discoveryClient *discovery.Disco
 // var ErrNextLoop = utils.ErrNextLoop
 
 // Alphabetical order to not repeat or miss permissions
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;update;list;patch
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;update;list;patch
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;update;list
+// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=databases,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=databases/status,verbs=get;watch;update;patch
+// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;delete;patch;create;watch
-// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update
-// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors,verbs=get;create;list;watch;delete;patch
-// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=create;delete;get;list;watch;update;patch
-// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters/finalizers,verbs=update
-// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters/status,verbs=get;watch;update;patch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;patch;update;get;list;watch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;patch;update;get;list;watch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;watch;delete;patch
-// +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;create;watch;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete;patch;create;watch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=get;list;delete;patch;create;watch
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;list;get;watch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;patch;update;list;watch;get
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;create;delete;update;patch;list;watch
 
 // Reconcile is the operator reconcile loop
 func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -128,10 +115,16 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch database.Status.Phase {
 	case apiv1.DatabasePhaseFailed, apiv1.DatabasePhaseCompleted:
 		return ctrl.Result{}, nil
+	case "":
+		r.RegisterPhase(ctx, &database, apiv1.DatabasePhasePending, "just starting")
 	}
 
 	clusterNamespace := database.Spec.Cluster.Namespace
 	clusterName := database.Spec.Cluster.Name
+
+	r.Recorder.Eventf(&database, "Normal", "FindingCluster",
+		"hello we are looking for cluster %v", clusterName)
+
 	var cluster apiv1.Cluster
 	if err := r.Get(ctx, client.ObjectKey{
 		Namespace: clusterNamespace,
@@ -148,6 +141,9 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			"Error getting cluster %v, will not retry: %s", clusterName, err.Error())
 		return ctrl.Result{}, nil
 	}
+
+	r.Recorder.Eventf(&database, "Normal", "FindingCluster",
+		"hello we have found cluster %v", clusterName)
 
 	// Run the inner reconcile loop. Translate any ErrNextLoop to an errorless return
 	result, err := r.reconcile(ctx, &cluster, &database)
@@ -481,6 +477,8 @@ func (r *DatabaseReconciler) reconcileResources(
 ) (ctrl.Result, error) {
 	contextLogger := log.FromContext(ctx)
 
+	r.Recorder.Event(database, "Normal", "ReconcileDatabase", "still reconciling")
+
 	// Act on Pods and PVCs only if there is nothing that is currently being created or deleted
 	if runningJobs := resources.countRunningJobs(); runningJobs > 0 {
 		contextLogger.Debug("A job is currently running. Waiting", "count", runningJobs)
@@ -506,6 +504,8 @@ func (r *DatabaseReconciler) reconcileResources(
 			"jobs", len(resources.jobs.Items))
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
 	}
+
+	r.Recorder.Event(database, "Normal", "ReconcileDatabase", "we should start a job here probs")
 
 	// if !resources.allInstancesAreActive() {
 	// 	contextLogger.Debug("Instance pod not active. Retrying in one second.")
@@ -545,10 +545,17 @@ func (r *DatabaseReconciler) reconcileResources(
 	// 	return res, err
 	// }
 
-	// // Reconcile Pods
-	// if res, err := r.ReconcilePods(ctx, cluster, resources, instancesStatus); err != nil {
-	// 	return res, err
-	// }
+	instances, err := GetManagedInstances(ctx, cluster, r.Client)
+	if err != nil {
+		r.Recorder.Event(database, "Warning", "ReconcileDatabase", "no instances?")
+		contextLogger.Error(err, "Cannot extract the list of managed resources")
+		return ctrl.Result{}, err
+	}
+	instancesStatus := r.StatusClient.GetStatusFromInstances(ctx, instances)
+	// Reconcile Pods
+	if res, err := r.ReconcilePods(ctx, cluster, database, resources, instancesStatus); err != nil {
+		return res, err
+	}
 
 	// if len(resources.instances.Items) > 0 && resources.noInstanceIsAlive() {
 	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, r.RegisterPhase(ctx, cluster, apiv1.PhaseUnrecoverable,
@@ -560,49 +567,212 @@ func (r *DatabaseReconciler) reconcileResources(
 	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
 	// }
 
-	// // PhaseInplacePrimaryRestart will be patched to healthy in instance manager
-	// if database.Status.Phase == apiv1.PhaseInplacePrimaryRestart {
-	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
-	// }
+	// resources.jobs.
 
-	// When everything is reconciled, update the status
-	if err := r.RegisterPhase(ctx, database, apiv1.PhaseHealthy, ""); err != nil {
-		return ctrl.Result{}, err
+	for idx := range resources.jobs.Items {
+		job := &resources.jobs.Items[idx]
+		contextLogger.Debug("found a job", "job", job.Name)
 	}
 
-	r.cleanupCompletedJobs(ctx, resources.jobs)
+	completedJobs := utils.FilterJobsWithOneCompletion(resources.jobs.Items)
+	for idx := range completedJobs {
+		job := &completedJobs[idx]
+		if !job.DeletionTimestamp.IsZero() {
+			contextLogger.Debug("skipping job because it has deletion timestamp populated",
+				"job", job.Name)
+			continue
+		}
+
+		contextLogger.Debug("found a completed job", "job", job.Name)
+		// if err := r.Delete(ctx, job, &client.DeleteOptions{
+		// 	PropagationPolicy: &foreground,
+		// }); err != nil {
+		// 	contextLogger.Error(err, "cannot delete job", "job", job.Name)
+		// 	continue
+		// }
+	}
+
+	// wait until the database has been created
+	if database.Status.Phase != apiv1.DatabasePhaseCompleted {
+		return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
+	}
+
+	// // When everything is reconciled, update the status
+	// if err := r.RegisterPhase(ctx, database, apiv1.DatabasePhaseCompleted, ""); err != nil {
+	// 	return ctrl.Result{}, err
+	// }
+
+	// r.cleanupCompletedJobs(ctx, resources.jobs)
 
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager creates a DatabaseReconciler
-func (r *DatabaseReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	err := r.createFieldIndexes(ctx, mgr)
-	if err != nil {
-		return err
+// ReconcilePods decides when to create, scale up/down or wait for pods
+func (r *DatabaseReconciler) ReconcilePods(ctx context.Context, cluster *apiv1.Cluster,
+	database *apiv1.Database,
+	resources *managedDatabaseResources, instancesStatus postgres.PostgresqlStatusList,
+) (ctrl.Result, error) {
+	// contextLogger := log.FromContext(ctx)
+
+	r.Recorder.Event(database, "Normal", "ReconcilePods", "we should definitely start a job here probs")
+
+	if database.GetStatus().Phase != apiv1.DatabasePhasePending {
+		return ctrl.Result{}, nil
 	}
 
+	// if err := r.markPVCReadyForCompletedJobs(ctx, resources); err != nil {
+	// 	return ctrl.Result{}, err
+	// }
+
+	// if res, err := r.ensureInstancesAreCreated(ctx, cluster, resources, instancesStatus); !res.IsZero() || err != nil {
+	// 	return res, err
+	// }
+
+	// if err := r.ensureHealthyPVCsAnnotation(ctx, cluster, resources); err != nil {
+	// 	return ctrl.Result{}, err
+	// }
+
+	// // // We have these cases now:
+	// // //
+	// // // 1 - There is no existent Pod for this PostgreSQL cluster ==> we need to create the
+	// // // first node from which we will join the others
+	// // //
+	// // // 2 - There is one Pod, and that one is still not ready ==> we need to wait
+	// // // for the first node to be ready
+	// // //
+	// // // 3 - We have already some Pods, all they all ready ==> we can create the other
+	// // // pods joining the node that we already have.
+	// if cluster.Status.Instances == 0 {
+	// 	contextLogger.Debug("Waiting for cluster")
+	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
+	// }
+
+	// // Stop acting here if there are non-ready Pods unless in maintenance reusing PVCs.
+	// // The user have chosen to wait for the missing nodes to come up
+	// if instancesStatus.InstancesReportingStatus() < cluster.Status.Instances {
+	// 	contextLogger.Debug("Waiting for Pods to be ready")
+	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
+	// }
+
+	return r.createDatabase(ctx, cluster, database)
+
+	// // if !instancesStatus.IsComplete() {
+	// // 	return ctrl.Result{RequeueAfter: 30 * time.Second}, ErrNextLoop
+	// // }
+
+	// // Are there missing nodes? Let's create one
+	// if cluster.Status.Instances < cluster.Spec.Instances &&
+	// 	instancesStatus.InstancesReportingStatus() == cluster.Status.Instances {
+	// 	newNodeSerial, err := r.generateNodeSerial(ctx, cluster)
+	// 	if err != nil {
+	// 		return ctrl.Result{}, fmt.Errorf("cannot generate node serial: %w", err)
+	// 	}
+	// 	return r.joinReplicaInstance(ctx, newNodeSerial, cluster)
+	// }
+
+	// // Are there nodes to be removed? Remove one of them
+	// if cluster.Status.Instances > cluster.Spec.Instances {
+	// 	if err := r.scaleDownCluster(ctx, cluster, resources); err != nil {
+	// 		return ctrl.Result{}, fmt.Errorf("cannot scale down cluster: %w", err)
+	// 	}
+	// }
+
+	// // Stop acting here if there are non-ready Pods
+	// // In the rest of the function we are sure that
+	// // cluster.Status.Instances == cluster.Spec.Instances and
+	// // we don't need to modify the cluster topology
+	// if cluster.Status.ReadyInstances != cluster.Status.Instances ||
+	// 	cluster.Status.ReadyInstances != len(instancesStatus.Items) ||
+	// 	!instancesStatus.IsComplete() {
+	// 	contextLogger.Debug("Waiting for Pods to be ready")
+	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
+	// }
+
+	// return r.handleRollingUpdate(ctx, cluster, instancesStatus)
+}
+
+// // getDatabaseTargetPod returns the pod that should run the database setup according to the current
+// // cluster's target policy
+// func (r *DatabaseReconciler) getDatabaseTargetPod(ctx context.Context,
+// 	cluster *apiv1.Cluster,
+// 	database *apiv1.Database,
+// ) (*corev1.Pod, error) {
+// 	var pod corev1.Pod
+// 	err := r.Get(ctx, client.ObjectKey{
+// 		Namespace: cluster.Namespace,
+// 		Name:      cluster.Status.TargetPrimary,
+// 	}, &pod)
+
+// 	return &pod, err
+// }
+
+// // startCreateDb request a datavase in a Pod and marks the backup started
+// // or failed if needed
+// func startCreateDb(
+// 	ctx context.Context,
+// 	client client.Client,
+// 	database *apiv1.Database,
+// 	pod *corev1.Pod,
+// 	cluster *apiv1.Cluster,
+// ) error {
+// 	// This backup has been started
+// 	status := database.GetStatus()
+// 	status.SetAsStarted(pod, apiv1.BackupMethodBarmanObjectStore)
+
+// 	if err := postgres.PatchBackupStatusAndRetry(ctx, client, backup); err != nil {
+// 		return err
+// 	}
+// 	config := ctrl.GetConfigOrDie()
+// 	clientInterface := kubernetes.NewForConfigOrDie(config)
+
+// 	var err error
+// 	var stdout, stderr string
+// 	err = retry.OnError(retry.DefaultBackoff, func(error) bool { return true }, func() error {
+// 		stdout, stderr, err = utils.ExecCommand(
+// 			ctx,
+// 			clientInterface,
+// 			config,
+// 			*pod,
+// 			specs.PostgresContainerName,
+// 			nil,
+// 			"/controller/manager",
+// 			"backup",
+// 			backup.GetName(),
+// 		)
+// 		return err
+// 	})
+
+// 	if err != nil {
+// 		log.FromContext(ctx).Error(err, "executing backup", "stdout", stdout, "stderr", stderr)
+// 		status.SetAsFailed(fmt.Errorf("can't execute backup: %w", err))
+// 		status.CommandError = stderr
+// 		status.CommandError = stdout
+
+// 		// Update backup status in cluster conditions
+// 		if errCond := conditions.Patch(ctx, client, cluster, apiv1.BuildClusterBackupFailedCondition(err)); errCond != nil {
+// 			log.FromContext(ctx).Error(errCond, "Error while updating backup condition (backup failed)")
+// 		}
+// 		return postgres.PatchBackupStatusAndRetry(ctx, client, backup)
+// 	}
+
+// 	return nil
+// }
+
+// SetupWithManager creates a DatabaseReconciler
+func (r *DatabaseReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	// err := r.createFieldIndexes(ctx, mgr)
+	// if err != nil {
+	// 	return err
+	// }
+
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&apiv1.Cluster{}).
+		For(&apiv1.Database{}).
 		Owns(&corev1.Pod{}).
 		Owns(&batchv1.Job{}).
-		Owns(&corev1.Service{}).
-		Owns(&corev1.PersistentVolumeClaim{}).
-		Owns(&policyv1.PodDisruptionBudget{}).
-		Watches(
-			&corev1.ConfigMap{},
-			handler.EnqueueRequestsFromMapFunc(r.mapConfigMapsToClusters()),
-			builder.WithPredicates(configMapsPredicate),
-		).
 		Watches(
 			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(r.mapSecretsToClusters()),
+			handler.EnqueueRequestsFromMapFunc(r.mapSecretsToDatabases()),
 			builder.WithPredicates(secretsPredicate),
-		).
-		Watches(
-			&corev1.Node{},
-			handler.EnqueueRequestsFromMapFunc(r.mapNodeToClusters()),
-			builder.WithPredicates(nodesPredicate),
 		).
 		Complete(r)
 }
@@ -614,80 +784,14 @@ func (r *DatabaseReconciler) createFieldIndexes(ctx context.Context, mgr ctrl.Ma
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx,
 		&corev1.Pod{},
-		podOwnerKey, func(rawObj client.Object) []string {
+		dbPodOwnerKey, func(rawObj client.Object) []string {
 			pod := rawObj.(*corev1.Pod)
 
-			if ownerName, ok := IsOwnedByCluster(pod); ok {
+			if ownerName, ok := IsOwnedByDatabase(pod); ok {
 				return []string{ownerName}
 			}
 
 			return nil
-		}); err != nil {
-		return err
-	}
-
-	// Create a new indexed field on Clusters. This field will be used to easily
-	// find all Clusters with default queries enabled
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx,
-		&apiv1.Cluster{},
-		disableDefaultQueriesSpecPath, func(rawObj client.Object) []string {
-			cluster := rawObj.(*apiv1.Cluster)
-
-			if cluster.Spec.Monitoring == nil ||
-				cluster.Spec.Monitoring.DisableDefaultQueries == nil ||
-				!*cluster.Spec.Monitoring.DisableDefaultQueries {
-				return []string{"false"}
-			}
-			return []string{"true"}
-		}); err != nil {
-		return err
-	}
-
-	// Create a new indexed field on Pods. This field will be used to easily
-	// find all the Pods created by node
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx,
-		&corev1.Pod{},
-		".spec.nodeName", func(rawObj client.Object) []string {
-			pod := rawObj.(*corev1.Pod)
-			if pod.Spec.NodeName == "" {
-				return nil
-			}
-
-			return []string{pod.Spec.NodeName}
-		}); err != nil {
-		return err
-	}
-
-	// Create a new indexed field on PVCs.
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx,
-		&corev1.PersistentVolumeClaim{},
-		pvcOwnerKey, func(rawObj client.Object) []string {
-			persistentVolumeClaim := rawObj.(*corev1.PersistentVolumeClaim)
-
-			if ownerName, ok := IsOwnedByCluster(persistentVolumeClaim); ok {
-				return []string{ownerName}
-			}
-
-			return nil
-		}); err != nil {
-		return err
-	}
-
-	// Create a new indexed field on Poolers. This field will be used to easily
-	// find all the Poolers pointing to a cluster.
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx,
-		&apiv1.Pooler{},
-		poolerClusterKey, func(rawObj client.Object) []string {
-			pooler := rawObj.(*apiv1.Pooler)
-			if pooler.Spec.Cluster.Name == "" {
-				return nil
-			}
-
-			return []string{pooler.Spec.Cluster.Name}
 		}); err != nil {
 		return err
 	}
@@ -696,10 +800,10 @@ func (r *DatabaseReconciler) createFieldIndexes(ctx context.Context, mgr ctrl.Ma
 	return mgr.GetFieldIndexer().IndexField(
 		ctx,
 		&batchv1.Job{},
-		jobOwnerKey, func(rawObj client.Object) []string {
+		dbJobOwnerKey, func(rawObj client.Object) []string {
 			job := rawObj.(*batchv1.Job)
 
-			if ownerName, ok := IsOwnedByCluster(job); ok {
+			if ownerName, ok := IsOwnedByDatabase(job); ok {
 				return []string{ownerName}
 			}
 
@@ -707,51 +811,51 @@ func (r *DatabaseReconciler) createFieldIndexes(ctx context.Context, mgr ctrl.Ma
 		})
 }
 
-// // IsOwnedByCluster checks that an object is owned by a Cluster and returns
-// // the owner name
-// func IsOwnedByCluster(obj client.Object) (string, bool) {
-// 	owner := metav1.GetControllerOf(obj)
-// 	if owner == nil {
-// 		return "", false
-// 	}
+// IsOwnedByDatabase checks that an object is owned by a Database and returns
+// the owner name
+func IsOwnedByDatabase(obj client.Object) (string, bool) {
+	owner := metav1.GetControllerOf(obj)
+	if owner == nil {
+		return "", false
+	}
 
-// 	if owner.Kind != apiv1.ClusterKind {
-// 		return "", false
-// 	}
+	if owner.Kind != apiv1.DatabaseKind {
+		return "", false
+	}
 
-// 	if owner.APIVersion != apiGVString {
-// 		return "", false
-// 	}
+	if owner.APIVersion != apiGVString {
+		return "", false
+	}
 
-// 	return owner.Name, true
-// }
+	return owner.Name, true
+}
 
-// mapSecretsToClusters returns a function mapping cluster events watched to cluster reconcile requests
-func (r *DatabaseReconciler) mapSecretsToClusters() handler.MapFunc {
+// mapSecretsToDatabases returns a function mapping catabase events watched to database reconcile requests
+func (r *DatabaseReconciler) mapSecretsToDatabases() handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		secret, ok := obj.(*corev1.Secret)
 		if !ok {
 			return nil
 		}
-		clusters, err := r.getClustersForSecretsOrConfigMapsToClustersMapper(ctx, secret)
+		databases, err := r.getDatabasesForSecretsOrConfigMapsToDatabasesMapper(ctx, secret)
 		if err != nil {
-			log.FromContext(ctx).Error(err, "while getting cluster list", "namespace", secret.Namespace)
+			log.FromContext(ctx).Error(err, "while getting database list", "namespace", secret.Namespace)
 			return nil
 		}
-		// build requests for cluster referring the secret
-		return filterClustersUsingSecret(clusters, secret)
+		// build requests for catabase referring the secret
+		return filterDatabasesUsingSecret(databases, secret)
 	}
 }
 
-func (r *DatabaseReconciler) getClustersForSecretsOrConfigMapsToClustersMapper(
+func (r *DatabaseReconciler) getDatabasesForSecretsOrConfigMapsToDatabasesMapper(
 	ctx context.Context,
 	object metav1.Object,
-) (clusters apiv1.ClusterList, err error) {
+) (databases apiv1.DatabaseList, err error) {
 	_, isSecret := object.(*corev1.Secret)
 	_, isConfigMap := object.(*corev1.ConfigMap)
 
 	if !isSecret && !isConfigMap {
-		return clusters, fmt.Errorf("unsupported object: %+v", object)
+		return databases, fmt.Errorf("unsupported object: %+v", object)
 	}
 
 	// Get all the clusters handled by the operator in the secret namespaces
@@ -766,66 +870,66 @@ func (r *DatabaseReconciler) getClustersForSecretsOrConfigMapsToClustersMapper(
 		// See cluster.UsesSecret method
 		err = r.List(
 			ctx,
-			&clusters,
+			&databases,
 			client.MatchingFields{disableDefaultQueriesSpecPath: "false"},
 		)
 	} else {
 		// This is a configmap that affects only a given namespace, so we fetch only the clusters residing in there.
 		err = r.List(
 			ctx,
-			&clusters,
+			&databases,
 			client.InNamespace(object.GetNamespace()),
 		)
 	}
-	return clusters, err
+	return databases, err
 }
 
-// mapNodeToClusters returns a function mapping cluster events watched to cluster reconcile requests
-func (r *DatabaseReconciler) mapConfigMapsToClusters() handler.MapFunc {
-	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		config, ok := obj.(*corev1.ConfigMap)
-		if !ok {
-			return nil
-		}
-		clusters, err := r.getClustersForSecretsOrConfigMapsToClustersMapper(ctx, config)
-		if err != nil {
-			log.FromContext(ctx).Error(err, "while getting cluster list", "namespace", config.Namespace)
-			return nil
-		}
-		// build requests for clusters that refer the configmap
-		return filterClustersUsingConfigMap(clusters, config)
-	}
-}
-
-// // filterClustersUsingConfigMap returns a list of reconcile.Request for the clusters
-// // that reference the secret
-// func filterClustersUsingSecret(
-// 	clusters apiv1.ClusterList,
-// 	secret *corev1.Secret,
-// ) (requests []reconcile.Request) {
-// 	for _, cluster := range clusters.Items {
-// 		if cluster.UsesSecret(secret.Name) {
-// 			requests = append(requests,
-// 				reconcile.Request{
-// 					NamespacedName: types.NamespacedName{
-// 						Name:      cluster.Name,
-// 						Namespace: cluster.Namespace,
-// 					},
-// 				},
-// 			)
-// 			continue
+// // mapNodeToDatabases returns a function mapping cluster events watched to database reconcile requests
+// func (r *DatabaseReconciler) mapConfigMapsToDatabases() handler.MapFunc {
+// 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+// 		config, ok := obj.(*corev1.ConfigMap)
+// 		if !ok {
+// 			return nil
 // 		}
+// 		databases, err := r.getDatabasesForSecretsOrConfigMapsToDatabasesMapper(ctx, config)
+// 		if err != nil {
+// 			log.FromContext(ctx).Error(err, "while getting database list", "namespace", config.Namespace)
+// 			return nil
+// 		}
+// 		// build requests for databases that refer the configmap
+// 		return filterDatabasesUsingConfigMap(databases, config)
 // 	}
-// 	return requests
 // }
 
-// // filterClustersUsingConfigMap returns a list of reconcile.Request for the clusters
+// filterClustersUsingConfigMap returns a list of reconcile.Request for the clusters
+// that reference the secret
+func filterDatabasesUsingSecret(
+	Databases apiv1.DatabaseList,
+	secret *corev1.Secret,
+) (requests []reconcile.Request) {
+	for _, database := range Databases.Items {
+		if database.UsesSecret(secret.Name) {
+			requests = append(requests,
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      database.Name,
+						Namespace: database.Namespace,
+					},
+				},
+			)
+			continue
+		}
+	}
+	return requests
+}
+
+// // filterDatabasesUsingConfigMap returns a list of reconcile.Request for the Databases
 // // that reference the configMap
-// func filterClustersUsingConfigMap(
-// 	clusters apiv1.ClusterList,
+// func filterDatabasesUsingConfigMap(
+// 	Databases apiv1.DatabaseList,
 // 	config *corev1.ConfigMap,
 // ) (requests []reconcile.Request) {
-// 	for _, cluster := range clusters.Items {
+// 	for _, cluster := range Databases.Items {
 // 		if cluster.UsesConfigMap(config.Name) {
 // 			requests = append(requests,
 // 				reconcile.Request{
@@ -841,117 +945,117 @@ func (r *DatabaseReconciler) mapConfigMapsToClusters() handler.MapFunc {
 // 	return requests
 // }
 
-// mapNodeToClusters returns a function mapping cluster events watched to cluster reconcile requests
-func (r *DatabaseReconciler) mapNodeToClusters() handler.MapFunc {
-	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		node := obj.(*corev1.Node)
-		// exit if the node is schedulable (e.g. not cordoned)
-		// could be expanded here with other conditions (e.g. pressure or issues)
-		if !node.Spec.Unschedulable {
-			return nil
-		}
-		var childPods corev1.PodList
-		// get all the pods handled by the operator on that node
-		err := r.List(ctx, &childPods,
-			client.MatchingFields{".spec.nodeName": node.Name},
-			client.MatchingLabels{
-				// TODO: eventually migrate to the new label
-				utils.ClusterRoleLabelName: specs.ClusterRoleLabelPrimary,
-				utils.PodRoleLabelName:     string(utils.PodRoleInstance),
-			},
-		)
-		if err != nil {
-			log.FromContext(ctx).Error(err, "while getting primary instances for node")
-			return nil
-		}
-		var requests []reconcile.Request
-		// build requests for nodes the pods are running on
-		for idx := range childPods.Items {
-			if cluster, ok := IsOwnedByCluster(&childPods.Items[idx]); ok {
-				requests = append(requests,
-					reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      cluster,
-							Namespace: childPods.Items[idx].Namespace,
-						},
-					},
-				)
-			}
-		}
-		return requests
-	}
-}
+// // mapNodeToClusters returns a function mapping cluster events watched to cluster reconcile requests
+// func (r *DatabaseReconciler) mapNodeToClusters() handler.MapFunc {
+// 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+// 		node := obj.(*corev1.Node)
+// 		// exit if the node is schedulable (e.g. not cordoned)
+// 		// could be expanded here with other conditions (e.g. pressure or issues)
+// 		if !node.Spec.Unschedulable {
+// 			return nil
+// 		}
+// 		var childPods corev1.PodList
+// 		// get all the pods handled by the operator on that node
+// 		err := r.List(ctx, &childPods,
+// 			client.MatchingFields{".spec.nodeName": node.Name},
+// 			client.MatchingLabels{
+// 				// TODO: eventually migrate to the new label
+// 				utils.ClusterRoleLabelName: specs.ClusterRoleLabelPrimary,
+// 				utils.PodRoleLabelName:     string(utils.PodRoleInstance),
+// 			},
+// 		)
+// 		if err != nil {
+// 			log.FromContext(ctx).Error(err, "while getting primary instances for node")
+// 			return nil
+// 		}
+// 		var requests []reconcile.Request
+// 		// build requests for nodes the pods are running on
+// 		for idx := range childPods.Items {
+// 			if cluster, ok := IsOwnedByCluster(&childPods.Items[idx]); ok {
+// 				requests = append(requests,
+// 					reconcile.Request{
+// 						NamespacedName: types.NamespacedName{
+// 							Name:      cluster,
+// 							Namespace: childPods.Items[idx].Namespace,
+// 						},
+// 					},
+// 				)
+// 			}
+// 		}
+// 		return requests
+// 	}
+// }
 
-// TODO: only required to cleanup custom monitoring queries configmaps from older versions (v1.10 and v1.11)
-// that could have been copied with the source configmap name instead of the new default one.
-// Should be removed in future releases.
-func (r *DatabaseReconciler) deleteOldCustomQueriesConfigmap(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) {
-	contextLogger := log.FromContext(ctx)
+// // TODO: only required to cleanup custom monitoring queries configmaps from older versions (v1.10 and v1.11)
+// // that could have been copied with the source configmap name instead of the new default one.
+// // Should be removed in future releases.
+// func (r *DatabaseReconciler) deleteOldCustomQueriesConfigmap(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) {
+// 	contextLogger := log.FromContext(ctx)
 
-	// if the cluster didn't have default monitoring queries, do nothing
-	if cluster.Spec.Monitoring.AreDefaultQueriesDisabled() ||
-		configuration.Current.MonitoringQueriesConfigmap == "" ||
-		configuration.Current.MonitoringQueriesConfigmap == apiv1.DefaultMonitoringConfigMapName {
-		return
-	}
+// 	// if the cluster didn't have default monitoring queries, do nothing
+// 	if cluster.Spec.Monitoring.AreDefaultQueriesDisabled() ||
+// 		configuration.Current.MonitoringQueriesConfigmap == "" ||
+// 		configuration.Current.MonitoringQueriesConfigmap == apiv1.DefaultMonitoringConfigMapName {
+// 		return
+// 	}
 
-	// otherwise, remove the old default monitoring queries configmap from the cluster and delete it, if present
-	oldCmID := -1
-	for idx, cm := range cluster.Spec.Monitoring.CustomQueriesConfigMap {
-		if cm.Name == configuration.Current.MonitoringQueriesConfigmap &&
-			cm.Key == apiv1.DefaultMonitoringKey {
-			oldCmID = idx
-			break
-		}
-	}
+// 	// otherwise, remove the old default monitoring queries configmap from the cluster and delete it, if present
+// 	oldCmID := -1
+// 	for idx, cm := range cluster.Spec.Monitoring.CustomQueriesConfigMap {
+// 		if cm.Name == configuration.Current.MonitoringQueriesConfigmap &&
+// 			cm.Key == apiv1.DefaultMonitoringKey {
+// 			oldCmID = idx
+// 			break
+// 		}
+// 	}
 
-	// if we didn't find it, do nothing
-	if oldCmID < 0 {
-		return
-	}
+// 	// if we didn't find it, do nothing
+// 	if oldCmID < 0 {
+// 		return
+// 	}
 
-	// if we found it, we are going to get it and check it was actually created by the operator or was already deleted
-	var oldCm corev1.ConfigMap
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      configuration.Current.MonitoringQueriesConfigmap,
-		Namespace: cluster.Namespace,
-	}, &oldCm)
-	// if we found it, we check the annotation the operator should have set to be sure it was created by us
-	if err == nil { // nolint:nestif
-		// if it was, we delete it and proceed to remove it from the cluster monitoring spec
-		if _, ok := oldCm.Annotations[utils.OperatorVersionAnnotationName]; ok {
-			err = r.Delete(ctx, &oldCm)
-			// if there is any error except the cm was already deleted, we return
-			if err != nil && !apierrs.IsNotFound(err) {
-				contextLogger.Warning("error while deleting old default monitoring custom queries configmap",
-					"err", err,
-					"configmap", configuration.Current.MonitoringQueriesConfigmap)
-				return
-			}
-		} else {
-			// it exists, but it's not handled by the operator, we do nothing
-			contextLogger.Warning("A configmap with the same name as the old default monitoring queries "+
-				"configmap exists, but doesn't have the required annotation, so it won't be deleted, "+
-				"nor removed from the cluster monitoring spec",
-				"configmap", oldCm.Name)
-			return
-		}
-	} else if !apierrs.IsNotFound(err) {
-		// if there is any error except the cm was already deleted, we return
-		contextLogger.Warning("error while getting old default monitoring custom queries configmap",
-			"err", err,
-			"configmap", configuration.Current.MonitoringQueriesConfigmap)
-		return
-	}
-	// both if it exists or not, if we are here we should delete it from the list of custom queries configmaps
-	oldCluster := cluster.DeepCopy()
-	cluster.Spec.Monitoring.CustomQueriesConfigMap = append(cluster.Spec.Monitoring.CustomQueriesConfigMap[:oldCmID],
-		cluster.Spec.Monitoring.CustomQueriesConfigMap[oldCmID+1:]...)
-	err = r.Patch(ctx, cluster, client.MergeFrom(oldCluster))
-	if err != nil {
-		log.Warning("had an error while removing the old custom monitoring queries configmap from "+
-			"the monitoring section in the cluster",
-			"err", err,
-			"configmap", configuration.Current.MonitoringQueriesConfigmap)
-	}
-}
+// 	// if we found it, we are going to get it and check it was actually created by the operator or was already deleted
+// 	var oldCm corev1.ConfigMap
+// 	err := r.Get(ctx, types.NamespacedName{
+// 		Name:      configuration.Current.MonitoringQueriesConfigmap,
+// 		Namespace: cluster.Namespace,
+// 	}, &oldCm)
+// 	// if we found it, we check the annotation the operator should have set to be sure it was created by us
+// 	if err == nil { // nolint:nestif
+// 		// if it was, we delete it and proceed to remove it from the cluster monitoring spec
+// 		if _, ok := oldCm.Annotations[utils.OperatorVersionAnnotationName]; ok {
+// 			err = r.Delete(ctx, &oldCm)
+// 			// if there is any error except the cm was already deleted, we return
+// 			if err != nil && !apierrs.IsNotFound(err) {
+// 				contextLogger.Warning("error while deleting old default monitoring custom queries configmap",
+// 					"err", err,
+// 					"configmap", configuration.Current.MonitoringQueriesConfigmap)
+// 				return
+// 			}
+// 		} else {
+// 			// it exists, but it's not handled by the operator, we do nothing
+// 			contextLogger.Warning("A configmap with the same name as the old default monitoring queries "+
+// 				"configmap exists, but doesn't have the required annotation, so it won't be deleted, "+
+// 				"nor removed from the cluster monitoring spec",
+// 				"configmap", oldCm.Name)
+// 			return
+// 		}
+// 	} else if !apierrs.IsNotFound(err) {
+// 		// if there is any error except the cm was already deleted, we return
+// 		contextLogger.Warning("error while getting old default monitoring custom queries configmap",
+// 			"err", err,
+// 			"configmap", configuration.Current.MonitoringQueriesConfigmap)
+// 		return
+// 	}
+// 	// both if it exists or not, if we are here we should delete it from the list of custom queries configmaps
+// 	oldCluster := cluster.DeepCopy()
+// 	cluster.Spec.Monitoring.CustomQueriesConfigMap = append(cluster.Spec.Monitoring.CustomQueriesConfigMap[:oldCmID],
+// 		cluster.Spec.Monitoring.CustomQueriesConfigMap[oldCmID+1:]...)
+// 	err = r.Patch(ctx, cluster, client.MergeFrom(oldCluster))
+// 	if err != nil {
+// 		log.Warning("had an error while removing the old custom monitoring queries configmap from "+
+// 			"the monitoring section in the cluster",
+// 			"err", err,
+// 			"configmap", configuration.Current.MonitoringQueriesConfigmap)
+// 	}
+// }

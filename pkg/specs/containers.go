@@ -49,6 +49,28 @@ func createBootstrapContainer(cluster apiv1.Cluster) corev1.Container {
 	return container
 }
 
+// createBootstrapContainer creates the init container bootstrapping the operator
+// executable inside the generated Pods
+func createSetupBootstrapContainer(cluster apiv1.Cluster, database apiv1.Database) corev1.Container {
+	container := corev1.Container{
+		Name:            BootstrapControllerContainerName,
+		Image:           configuration.Current.OperatorImageName,
+		ImagePullPolicy: cluster.Spec.ImagePullPolicy,
+		Command: []string{
+			"/manager",
+			"bootstrap",
+			"/controller/manager",
+		},
+		VolumeMounts:    createPostgresSetupVolumeMounts(cluster, database),
+		Resources:       cluster.Spec.Resources,
+		SecurityContext: CreateContainerSecurityContext(cluster.GetSeccompProfile()),
+	}
+
+	addManagerLoggingOptions(cluster, &container)
+
+	return container
+}
+
 // addManagerLoggingOptions propagate the logging configuration
 // to the manager inside the generated pod.
 func addManagerLoggingOptions(cluster apiv1.Cluster, container *corev1.Container) {

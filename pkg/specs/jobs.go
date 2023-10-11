@@ -429,7 +429,7 @@ func createSetupJob(cluster apiv1.Cluster, database apiv1.Database, nodeSerial i
 				Spec: corev1.PodSpec{
 					Hostname: jobName,
 					InitContainers: []corev1.Container{
-						createBootstrapContainer(cluster),
+						createSetupBootstrapContainer(cluster, database),
 					},
 					SchedulerName: cluster.Spec.SchedulerName,
 					Containers: []corev1.Container{
@@ -441,10 +441,11 @@ func createSetupJob(cluster apiv1.Cluster, database apiv1.Database, nodeSerial i
 							EnvFrom:         envConfig.EnvFrom,
 							Command:         initCommand,
 							Resources:       cluster.Spec.Resources,
+							VolumeMounts:    createPostgresSetupVolumeMounts(cluster, database),
 							SecurityContext: CreateContainerSecurityContext(cluster.GetSeccompProfile()),
 						},
 					},
-					Volumes: createPostgresVolumes(cluster, instanceName),
+					Volumes: createPostgresSetupVolumes(cluster, database, instanceName),
 					SecurityContext: CreatePodSecurityContext(
 						cluster.GetSeccompProfile(),
 						cluster.GetPostgresUID(),
@@ -452,7 +453,7 @@ func createSetupJob(cluster apiv1.Cluster, database apiv1.Database, nodeSerial i
 					Affinity:    CreateAffinitySection(cluster.Name, cluster.Spec.Affinity),
 					Tolerations: cluster.Spec.Affinity.Tolerations,
 					// todo: maybe cluster-database ?
-					ServiceAccountName:        cluster.Name,
+					ServiceAccountName:        database.Name,
 					RestartPolicy:             corev1.RestartPolicyNever,
 					NodeSelector:              cluster.Spec.Affinity.NodeSelector,
 					TopologySpreadConstraints: cluster.Spec.TopologySpreadConstraints,

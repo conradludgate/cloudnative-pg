@@ -227,6 +227,11 @@ func RunController(
 		return err
 	}
 
+	if err = controllers.NewDatabaseReconciler(mgr, discoveryClient).SetupWithManager(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Database")
+		return err
+	}
+
 	if err = controllers.NewBackupReconciler(mgr, discoveryClient).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Backup")
 		return err
@@ -255,6 +260,11 @@ func RunController(
 		setupLog.Error(err, "unable to create webhook", "webhook", "Cluster", "version", "v1")
 		return err
 	}
+
+	// if err = (&apiv1.Database{}).SetupWebhookWithManager(mgr); err != nil {
+	// 	setupLog.Error(err, "unable to create webhook", "webhook", "Database", "version", "v1")
+	// 	return err
+	// }
 
 	if err = (&apiv1.Backup{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Backup", "version", "v1")

@@ -42,7 +42,12 @@ import (
 
 // createPostgresClusterObjects ensures that we have the required global objects
 func (r *DatabaseReconciler) createPostgresDatabaseObjects(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) error {
-	err := r.createOrPatchServiceAccount(ctx, cluster, database)
+	err := r.reconcilePostgresSecrets(ctx, cluster, database)
+	if err != nil {
+		return err
+	}
+
+	err = r.createOrPatchServiceAccount(ctx, cluster, database)
 	if err != nil {
 		return err
 	}
@@ -52,7 +57,7 @@ func (r *DatabaseReconciler) createPostgresDatabaseObjects(ctx context.Context, 
 		return err
 	}
 
-	err = r.createRoleBinding(ctx, cluster, database)
+	err = r.createRoleBinding(ctx, database)
 	if err != nil {
 		return err
 	}
@@ -61,32 +66,35 @@ func (r *DatabaseReconciler) createPostgresDatabaseObjects(ctx context.Context, 
 	// 		 that could have been copied with the source configmap name instead of the new default one.
 	// 		 Should be removed in future releases.
 	// should never return an error, not a requirement, just a nice to have
-	r.deleteOldCustomQueriesConfigmap(ctx, cluster, database)
+	// r.deleteOldCustomQueriesConfigmap(ctx, cluster, database)
 
 	return nil
 }
 
-func (r *DatabaseReconciler) reconcileAppUserSecret(ctx context.Context, cluster *apiv1.Cluster) error {
-	if cluster.ShouldCreateApplicationSecret() {
-		appPassword, err := password.Generate(64, 10, 0, false, true)
-		if err != nil {
+func (r *DatabaseReconciler) reconcilePostgresSecrets(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) error {
+	return r.reconcileAppUserSecret(ctx, cluster, database)
+}
+
+func (r *DatabaseReconciler) reconcileAppUserSecret(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) error {
+	appPassword, err := password.Generate(64, 10, 0, false, true)
+	if err != nil {
+		return err
+	}
+	appSecret := specs.CreateSecret(
+		database.GetApplicationSecretName(),
+		database.Namespace,
+		database.GetServiceReadWriteName(),
+		database.GetApplicationDatabaseName(),
+		database.GetApplicationDatabaseOwner(),
+		appPassword)
+
+	database.SetInheritedDataAndOwnership(&appSecret.ObjectMeta)
+	if err := resources.CreateIfNotFound(ctx, r.Client, appSecret); err != nil {
+		if !apierrs.IsAlreadyExists(err) {
 			return err
 		}
-		appSecret := specs.CreateSecret(
-			cluster.GetApplicationSecretName(),
-			cluster.Namespace,
-			cluster.GetServiceReadWriteName(),
-			cluster.GetApplicationDatabaseName(),
-			cluster.GetApplicationDatabaseOwner(),
-			appPassword)
-
-		cluster.SetInheritedDataAndOwnership(&appSecret.ObjectMeta)
-		if err := resources.CreateIfNotFound(ctx, r.Client, appSecret); err != nil {
-			if !apierrs.IsAlreadyExists(err) {
-				return err
-			}
-		}
 	}
+
 	return nil
 }
 
@@ -94,34 +102,34 @@ func (r *DatabaseReconciler) reconcileAppUserSecret(ctx context.Context, cluster
 // cluster with the latest cluster specification
 func (r *DatabaseReconciler) createOrPatchServiceAccount(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) error {
 	var sa corev1.ServiceAccount
-	if err := r.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}, &sa); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: database.Name, Namespace: cluster.Namespace}, &sa); err != nil {
 		if !apierrs.IsNotFound(err) {
 			return fmt.Errorf("while getting service account: %w", err)
 		}
 
-		r.Recorder.Event(cluster, "Normal", "CreatingServiceAccount", "Creating ServiceAccount")
+		r.Recorder.Event(database, "Normal", "CreatingServiceAccount", "Creating ServiceAccount")
 		return r.createServiceAccount(ctx, cluster, database)
 	}
 
-	generatedPullSecretNames, err := r.generateServiceAccountPullSecretsNames(ctx, cluster, database)
-	if err != nil {
-		return fmt.Errorf("while generating pull secret names: %w", err)
-	}
+	// generatedPullSecretNames, err := r.generateServiceAccountPullSecretsNames(ctx, cluster, database)
+	// if err != nil {
+	// 	return fmt.Errorf("while generating pull secret names: %w", err)
+	// }
 
 	origSa := sa.DeepCopy()
-	err = specs.UpdateServiceAccount(generatedPullSecretNames, &sa)
-	if err != nil {
-		return fmt.Errorf("while generating service account: %w", err)
-	}
+	// err = specs.UpdateServiceAccount(generatedPullSecretNames, &sa)
+	// if err != nil {
+	// 	return fmt.Errorf("while generating service account: %w", err)
+	// }
 	// we add the ownerMetadata only when creating the SA
-	cluster.SetInheritedData(&sa.ObjectMeta)
-	cluster.Spec.ServiceAccountTemplate.MergeMetadata(&sa)
+	database.SetInheritedData(&sa.ObjectMeta)
+	database.Spec.ServiceAccountTemplate.MergeMetadata(&sa)
 
-	if specs.IsServiceAccountAligned(ctx, origSa, generatedPullSecretNames, sa.ObjectMeta) {
-		return nil
-	}
+	// if specs.IsServiceAccountAligned(ctx, origSa, generatedPullSecretNames, sa.ObjectMeta) {
+	// 	return nil
+	// }
 
-	r.Recorder.Event(cluster, "Normal", "UpdatingServiceAccount", "Updating ServiceAccount")
+	r.Recorder.Event(database, "Normal", "UpdatingServiceAccount", "Updating ServiceAccount")
 	if err := r.Patch(ctx, &sa, client.MergeFrom(origSa)); err != nil {
 		return fmt.Errorf("while patching service account: %w", err)
 	}
@@ -131,56 +139,31 @@ func (r *DatabaseReconciler) createOrPatchServiceAccount(ctx context.Context, cl
 
 // createServiceAccount creates the service account for this PostgreSQL cluster
 func (r *DatabaseReconciler) createServiceAccount(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) error {
-	generatedPullSecretNames, err := r.generateServiceAccountPullSecretsNames(ctx, cluster, database)
-	if err != nil {
-		return fmt.Errorf("while generating pull secret names: %w", err)
-	}
+	// generatedPullSecretNames, err := r.generateServiceAccountPullSecretsNames(ctx, cluster, database)
+	// if err != nil {
+	// 	return fmt.Errorf("while generating pull secret names: %w", err)
+	// }
 
 	serviceAccount := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: cluster.Namespace,
-			Name:      cluster.Name,
+			Name:      database.Name,
 		},
 	}
-	err = specs.UpdateServiceAccount(generatedPullSecretNames, serviceAccount)
-	if err != nil {
-		return fmt.Errorf("while creating new ServiceAccount: %w", err)
-	}
+	// err = specs.UpdateServiceAccount(generatedPullSecretNames, serviceAccount)
+	// if err != nil {
+	// 	return fmt.Errorf("while creating new ServiceAccount: %w", err)
+	// }
 
-	cluster.SetInheritedDataAndOwnership(&serviceAccount.ObjectMeta)
-	cluster.Spec.ServiceAccountTemplate.MergeMetadata(serviceAccount)
+	database.SetInheritedDataAndOwnership(&serviceAccount.ObjectMeta)
+	database.Spec.ServiceAccountTemplate.MergeMetadata(serviceAccount)
 
-	err = r.Create(ctx, serviceAccount)
+	err := r.Create(ctx, serviceAccount)
 	if err != nil && !apierrs.IsAlreadyExists(err) {
 		return err
 	}
 
 	return nil
-}
-
-// generateServiceAccountPullSecretsNames extracts the list of pull secret names given
-// the cluster configuration
-func (r *DatabaseReconciler) generateServiceAccountPullSecretsNames(
-	ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database,
-) ([]string, error) {
-	pullSecretNames := make([]string, 0, len(cluster.Spec.ImagePullSecrets))
-
-	// Try to copy the secret from the operator
-	operatorPullSecret, err := r.copyPullSecretFromOperator(ctx, cluster, database)
-	if err != nil {
-		return nil, err
-	}
-
-	if operatorPullSecret != "" {
-		pullSecretNames = append(pullSecretNames, operatorPullSecret)
-	}
-
-	// Append the secrets specified by the user
-	for _, secretReference := range cluster.Spec.ImagePullSecrets {
-		pullSecretNames = append(pullSecretNames, secretReference.Name)
-	}
-
-	return pullSecretNames, nil
 }
 
 // copyPullSecretFromOperator will create a secret to download the operator, if the
@@ -235,7 +218,7 @@ func (r *DatabaseReconciler) createOrPatchRole(ctx context.Context, cluster *api
 	}
 
 	var role rbacv1.Role
-	if err := r.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}, &role); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: database.Name, Namespace: cluster.Namespace}, &role); err != nil {
 		if !apierrs.IsNotFound(err) {
 			return fmt.Errorf("while getting role: %w", err)
 		}
@@ -244,7 +227,7 @@ func (r *DatabaseReconciler) createOrPatchRole(ctx context.Context, cluster *api
 		return r.createRole(ctx, cluster, database, originBackup)
 	}
 
-	generatedRole := specs.CreateRole(*cluster, originBackup)
+	generatedRole := specs.CreateDbRole(*cluster, *database, originBackup)
 	if reflect.DeepEqual(generatedRole.Rules, role.Rules) {
 		// Everything fine, the two config maps are exactly the same
 		return nil
@@ -265,7 +248,7 @@ func (r *DatabaseReconciler) createOrPatchRole(ctx context.Context, cluster *api
 
 // createRole creates the role
 func (r *DatabaseReconciler) createRole(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database, backupOrigin *apiv1.Backup) error {
-	role := specs.CreateRole(*cluster, backupOrigin)
+	role := specs.CreateDbRole(*cluster, *database, backupOrigin)
 	cluster.SetInheritedDataAndOwnership(&role.ObjectMeta)
 
 	err := r.Create(ctx, &role)
@@ -278,9 +261,10 @@ func (r *DatabaseReconciler) createRole(ctx context.Context, cluster *apiv1.Clus
 }
 
 // createRoleBinding creates the role binding
-func (r *DatabaseReconciler) createRoleBinding(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) error {
-	roleBinding := specs.CreateRoleBinding(cluster.ObjectMeta)
-	cluster.SetInheritedDataAndOwnership(&roleBinding.ObjectMeta)
+func (r *DatabaseReconciler) createRoleBinding(ctx context.Context, database *apiv1.Database) error {
+	// TODO: fix namespace
+	roleBinding := specs.CreateRoleBinding(database.ObjectMeta)
+	database.SetInheritedDataAndOwnership(&roleBinding.ObjectMeta)
 
 	err := r.Create(ctx, &roleBinding)
 	if err != nil && !apierrs.IsAlreadyExists(err) {
@@ -307,6 +291,8 @@ func (r *DatabaseReconciler) createDatabase(
 	database *apiv1.Database,
 ) (ctrl.Result, error) {
 	contextLogger := log.FromContext(ctx)
+
+	r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "hopefully creating the database pls")
 
 	// Generate a new node serial
 	nodeSerial, err := r.generateNodeSerial(ctx, cluster, database)
@@ -338,23 +324,23 @@ func (r *DatabaseReconciler) createDatabase(
 		panic("todo")
 
 		// if database.Spec.Bootstrap.Recovery.VolumeSnapshots != nil {
-		// 	r.Recorder.Event(cluster, "Normal", "CreatingInstance", "Primary instance (from volumeSnapshots)")
+		// 	r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (from volumeSnapshots)")
 		// 	job = specs.CreatePrimaryJobViaRestoreSnapshot(*cluster, nodeSerial, backup)
 		// 	break
 		// }
 
-		// r.Recorder.Event(cluster, "Normal", "CreatingInstance", "Primary instance (from backup)")
+		// r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (from backup)")
 		// job = specs.CreatePrimaryJobViaRecovery(*cluster, nodeSerial, backup)
 	case cluster.Spec.Bootstrap != nil && cluster.Spec.Bootstrap.PgBaseBackup != nil:
 		panic("todo")
-		// r.Recorder.Event(cluster, "Normal", "CreatingInstance", "Primary instance (from physical backup)")
+		// r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (from physical backup)")
 		// job = specs.CreatePrimaryJobViaPgBaseBackup(*cluster, nodeSerial)
 	default:
-		r.Recorder.Event(cluster, "Normal", "CreatingInstance", "Primary instance (initdb)")
+		r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (initdb)")
 		job = specs.CreateDatabaseSetupJob(*cluster, *database, nodeSerial)
 	}
 
-	if err := ctrl.SetControllerReference(cluster, job, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(database, job, r.Scheme); err != nil {
 		contextLogger.Error(err, "Unable to set the owner reference for instance")
 		return ctrl.Result{}, err
 	}
@@ -394,21 +380,21 @@ func (r *DatabaseReconciler) createDatabase(
 
 // getOriginBackup gets the backup that is used to bootstrap a new PostgreSQL cluster
 func (r *DatabaseReconciler) getOriginBackup(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database) (*apiv1.Backup, error) {
-	if cluster.Spec.Bootstrap == nil ||
-		cluster.Spec.Bootstrap.Recovery == nil ||
-		cluster.Spec.Bootstrap.Recovery.Backup == nil {
+	if database.Spec.Bootstrap == nil ||
+		database.Spec.Bootstrap.Recovery == nil ||
+		database.Spec.Bootstrap.Recovery.Backup == nil {
 		return nil, nil
 	}
 
 	var backup apiv1.Backup
 	backupObjectKey := client.ObjectKey{
 		Namespace: cluster.Namespace,
-		Name:      cluster.Spec.Bootstrap.Recovery.Backup.Name,
+		Name:      database.Spec.Bootstrap.Recovery.Backup.Name,
 	}
 	err := r.Get(ctx, backupObjectKey, &backup)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
-			r.Recorder.Eventf(cluster, "Warning", "ErrorNoBackup",
+			r.Recorder.Eventf(database, "Warning", "ErrorNoBackup",
 				"Backup object \"%v/%v\" is missing",
 				backupObjectKey.Namespace, backupObjectKey.Name)
 

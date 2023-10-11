@@ -22,7 +22,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/system"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/versions"
 )
@@ -737,10 +736,10 @@ func (cluster *Database) UsesSecretInManagedRoles(secretName string) bool {
 }
 
 // GetApplicationSecretName get the name of the application secret for any bootstrap type
-func (cluster *Database) GetApplicationSecretName() string {
-	bootstrap := cluster.Spec.Bootstrap
+func (database *Database) GetApplicationSecretName() string {
+	bootstrap := database.Spec.Bootstrap
 	if bootstrap == nil {
-		return fmt.Sprintf("%v%v", cluster.Name, ApplicationUserSecretSuffix)
+		return fmt.Sprintf("%v-%v%v", database.Spec.Cluster.Name, database.Name, ApplicationUserSecretSuffix)
 	}
 	recovery := bootstrap.Recovery
 	if recovery != nil && recovery.Secret != nil && recovery.Secret.Name != "" {
@@ -757,7 +756,7 @@ func (cluster *Database) GetApplicationSecretName() string {
 		return initDB.Secret.Name
 	}
 
-	return fmt.Sprintf("%v%v", cluster.Name, ApplicationUserSecretSuffix)
+	return fmt.Sprintf("%v-%v%v", database.Spec.Cluster.Name, database.Name, ApplicationUserSecretSuffix)
 }
 
 // GetApplicationDatabaseName get the name of the application database for a specific bootstrap
@@ -1044,21 +1043,26 @@ func (cluster *Database) SetInheritedData(obj *metav1.ObjectMeta) {
 	utils.SetOperatorVersion(obj, versions.Version)
 }
 
-// ShouldForceLegacyBackup if present takes a backup without passing the name argument even on barman version 3.3.0+.
-// This is needed to test both backup system in the E2E suite
-func (cluster *Database) ShouldForceLegacyBackup() bool {
-	return cluster.Annotations[utils.LegacyBackupAnnotationName] == "true"
-}
-
-// GetCoredumpFilter get the coredump filter value from the cluster annotation
-func (cluster *Database) GetCoredumpFilter() string {
-	value, ok := cluster.Annotations[utils.CoredumpFilter]
-	if ok {
-		return value
-	}
-	return system.DefaultCoredumpFilter
-}
-
 func init() {
-	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
+	SchemeBuilder.Register(&Database{}, &DatabaseList{})
+}
+
+// GetStatus gets the database status
+func (database *Database) GetStatus() *DatabaseStatus {
+	return &database.Status
+}
+
+// GetMetadata get the metadata
+func (database *Database) GetMetadata() *metav1.ObjectMeta {
+	return &database.ObjectMeta
+}
+
+// GetName get the database name
+func (database *Database) GetName() string {
+	return database.Name
+}
+
+// GetNamespace get the database namespace
+func (database *Database) GetNamespace() string {
+	return database.Namespace
 }

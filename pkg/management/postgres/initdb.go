@@ -99,7 +99,7 @@ type InitInfo struct {
 // InitDbInfo contains all the info needed to bootstrap a new PostgreSQL database
 type InitDbInfo struct {
 	// The cluster name to assign to
-	ClusterName string
+	DatabaseName string
 
 	// The namespace where the cluster will be installed
 	Namespace string
@@ -113,10 +113,6 @@ type InitDbInfo struct {
 	// The list of queries to be executed just after having
 	// the application database created
 	PostInitApplicationSQL []string
-
-	// The list of queries to be executed inside the template1
-	// database just after having configured a new instance
-	PostInitTemplateSQL []string
 
 	// PostInitApplicationSQLRefsFolder is the folder which contains a bunch
 	// of SQL files to be executed just after having configured a new instance
@@ -319,15 +315,15 @@ func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
 		}
 	}
 
-	dbTemplate, err := pool.Connection("template1")
-	if err != nil {
-		return fmt.Errorf("while getting template database: %w", err)
-	}
-	// Execute the custom set of init queries of the template
-	log.Info("Executing post-init template SQL instructions")
-	if err = info.executeQueries(dbTemplate, info.PostInitTemplateSQL); err != nil {
-		return fmt.Errorf("could not execute init Template queries: %w", err)
-	}
+	// dbTemplate, err := pool.Connection("template1")
+	// if err != nil {
+	// 	return fmt.Errorf("while getting template database: %w", err)
+	// }
+	// // Execute the custom set of init queries of the template
+	// log.Info("Executing post-init template SQL instructions")
+	// if err = info.executeQueries(dbTemplate, info.PostInitTemplateSQL); err != nil {
+	// 	return fmt.Errorf("could not execute init Template queries: %w", err)
+	// }
 
 	if info.ApplicationDatabase == "" {
 		return nil

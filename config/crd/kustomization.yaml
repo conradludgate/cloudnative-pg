@@ -5,6 +5,7 @@ kind: Kustomization
 # It should be run by config/default
 resources:
 - bases/postgresql.cnpg.io_clusters.yaml
+- bases/postgresql.cnpg.io_databases.yaml
 - bases/postgresql.cnpg.io_backups.yaml
 - bases/postgresql.cnpg.io_scheduledbackups.yaml
 - bases/postgresql.cnpg.io_poolers.yaml
