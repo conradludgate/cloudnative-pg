@@ -19,12 +19,11 @@ package setup
 
 import (
 	"context"
-	"os"
 
-	"github.com/kballard/go-shellquote"
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/client"
 
+	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/istio"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/linkerd"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management"
@@ -34,42 +33,41 @@ import (
 
 // NewCmd generates the "init" subcommand
 func NewCmd() *cobra.Command {
-	var appDBName string
-	var appUser string
-	var databaseName string
-	var namespace string
-	var postInitApplicationSQLStr string
-	var postInitApplicationSQLRefsFolder string
+	// var appDBName string
+	// var appUser string
+	// var databaseName string
+	// var namespace string
+	// var postInitApplicationSQLStr string
+	// var postInitApplicationSQLRefsFolder string
 
+	var database apiv1.Database
 	cmd := &cobra.Command{
-		Use: "setupdb [options]",
+		Use: "setup [options]",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			return management.WaitKubernetesAPIServerDatabase(cmd.Context(), ctrl.ObjectKey{
-				Name:      databaseName,
-				Namespace: namespace,
+			return management.WaitKubernetesAPIServerDatabase(cmd.Context(), &database, ctrl.ObjectKey{
+				Name:      args[0],
+				Namespace: args[1],
 			})
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			postInitApplicationSQL, err := shellquote.Split(postInitApplicationSQLStr)
-			if err != nil {
-				log.Error(err, "Error while parsing post init template SQL queries")
-				return err
-			}
+			// postInitApplicationSQL, err := shellquote.Split("")
+			// if err != nil {
+			// 	log.Error(err, "Error while parsing post init template SQL queries")
+			// 	return err
+			// }
 
-			info := postgres.InitDbInfo{
-				ApplicationDatabase:    appDBName,
-				ApplicationUser:        appUser,
-				DatabaseName:           databaseName,
-				Namespace:              namespace,
-				PostInitApplicationSQL: postInitApplicationSQL,
-				// if the value to postInitApplicationSQLRefsFolder is empty,
-				// bootstrap will do nothing for post init application SQL refs.
-				PostInitApplicationSQLRefsFolder: postInitApplicationSQLRefsFolder,
-			}
+			// info := postgres.InitDbInfo{
+			// 	ApplicationDatabase:    appDBName,
+			// 	ApplicationUser:        appUser,
+			// 	PostInitApplicationSQL: postInitApplicationSQL,
+			// 	// if the value to postInitApplicationSQLRefsFolder is empty,
+			// 	// bootstrap will do nothing for post init application SQL refs.
+			// 	PostInitApplicationSQLRefsFolder: "",
+			// }
 
-			return initSubCommand(ctx, info)
+			return initSubCommand(ctx, &database)
 		},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
 			if err := istio.TryInvokeQuitEndpoint(cmd.Context()); err != nil {
@@ -80,25 +78,25 @@ func NewCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&appDBName, "app-db-name", "app",
-		"The name of the application containing the database")
-	cmd.Flags().StringVar(&appUser, "app-user", "app",
-		"The name of the application user")
-	cmd.Flags().StringVar(&databaseName, "database-name", os.Getenv("DATABASE_NAME"), "The name of the "+
-		"current cluster in k8s, used to coordinate switchover and failover")
-	cmd.Flags().StringVar(&namespace, "namespace", os.Getenv("NAMESPACE"), "The namespace of "+
-		"the cluster and the pod in k8s")
-	cmd.Flags().StringVar(&postInitApplicationSQLStr, "post-init-application-sql", "", "The list of SQL queries to be "+
-		"executed inside application database right after the database is created")
-	cmd.Flags().StringVar(&postInitApplicationSQLRefsFolder, "post-init-application-sql-refs-folder",
-		"", "The folder contains a set of SQL files to be executed in alphabetical order "+
-			"against the application database immediately after its creationd")
+	// cmd.Flags().StringVar(&appDBName, "app-db-name", "app",
+	// 	"The name of the application containing the database")
+	// cmd.Flags().StringVar(&appUser, "app-user", "app",
+	// 	"The name of the application user")
+	// cmd.Flags().StringVar(&databaseName, "database-name", os.Getenv("DATABASE_NAME"), "The name of the "+
+	// 	"current cluster in k8s, used to coordinate switchover and failover")
+	// cmd.Flags().StringVar(&namespace, "namespace", os.Getenv("NAMESPACE"), "The namespace of "+
+	// 	"the cluster and the pod in k8s")
+	// cmd.Flags().StringVar(&postInitApplicationSQLStr, "post-init-application-sql", "", "The list of SQL queries to be "+
+	// 	"executed inside application database right after the database is created")
+	// cmd.Flags().StringVar(&postInitApplicationSQLRefsFolder, "post-init-application-sql-refs-folder",
+	// 	"", "The folder contains a set of SQL files to be executed in alphabetical order "+
+	// 		"against the application database immediately after its creationd")
 
 	return cmd
 }
 
-func initSubCommand(ctx context.Context, info postgres.InitDbInfo) error {
-	err := info.Bootstrap(ctx)
+func initSubCommand(ctx context.Context, database *apiv1.Database) error {
+	err := postgres.BootstrapDb(ctx, database)
 	if err != nil {
 		log.Error(err, "Error while bootstrapping database")
 		return err

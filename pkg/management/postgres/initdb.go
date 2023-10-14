@@ -98,10 +98,7 @@ type InitInfo struct {
 
 // InitDbInfo contains all the info needed to bootstrap a new PostgreSQL database
 type InitDbInfo struct {
-	// The cluster name to assign to
-	DatabaseName string
-
-	// The namespace where the cluster will be installed
+	// The namespace of the database
 	Namespace string
 
 	// The name of the database to be generated for the applications
@@ -290,7 +287,7 @@ func (info InitInfo) ConfigureNewInstance(instance *Instance) error {
 
 // ConfigureNewDatabase creates the expected users and databases in the existing
 // PostgreSQL instance. If any error occurs, we return it
-func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
+func ConfigureNewDatabase(database *apiv1.Database, pool *pool.ConnectionPool) error {
 	log.Info("Configuring new PostgreSQL database")
 
 	dbSuperUser, err := pool.Connection("postgres")
@@ -298,9 +295,11 @@ func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
 		return fmt.Errorf("while getting superuser database: %w", err)
 	}
 
+	info := database.Spec.Bootstrap.InitDB
+
 	var existsRole bool
 	userRow := dbSuperUser.QueryRow("SELECT COUNT(*) > 0 FROM pg_catalog.pg_roles WHERE rolname = $1",
-		info.ApplicationUser)
+		info.Owner)
 	err = userRow.Scan(&existsRole)
 	if err != nil {
 		return err
@@ -309,7 +308,7 @@ func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
 	if !existsRole {
 		_, err = dbSuperUser.Exec(fmt.Sprintf(
 			"CREATE ROLE %v LOGIN",
-			pgx.Identifier{info.ApplicationUser}.Sanitize()))
+			pgx.Identifier{info.Owner}.Sanitize()))
 		if err != nil {
 			return err
 		}
@@ -325,12 +324,12 @@ func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
 	// 	return fmt.Errorf("could not execute init Template queries: %w", err)
 	// }
 
-	if info.ApplicationDatabase == "" {
+	if info.Database == "" {
 		return nil
 	}
 
 	var existsDB bool
-	dbRow := dbSuperUser.QueryRow("SELECT COUNT(*) > 0 FROM pg_database WHERE datname = $1", info.ApplicationDatabase)
+	dbRow := dbSuperUser.QueryRow("SELECT COUNT(*) > 0 FROM pg_database WHERE datname = $1", info.Database)
 	err = dbRow.Scan(&existsDB)
 	if err != nil {
 		return err
@@ -340,24 +339,24 @@ func (info InitDbInfo) ConfigureNewDatabase(pool *pool.ConnectionPool) error {
 		return nil
 	}
 	_, err = dbSuperUser.Exec(fmt.Sprintf("CREATE DATABASE %v OWNER %v",
-		pgx.Identifier{info.ApplicationDatabase}.Sanitize(),
-		pgx.Identifier{info.ApplicationUser}.Sanitize()))
+		pgx.Identifier{info.Database}.Sanitize(),
+		pgx.Identifier{info.Owner}.Sanitize()))
 	if err != nil {
 		return fmt.Errorf("could not create ApplicationDatabase: %w", err)
 	}
-	appDB, err := pool.Connection(info.ApplicationDatabase)
-	if err != nil {
-		return fmt.Errorf("could not get connection to ApplicationDatabase: %w", err)
-	}
-	// Execute the custom set of init queries of the application database
-	log.Info("executing Application instructions")
-	if err = info.executeQueries(appDB, info.PostInitApplicationSQL); err != nil {
-		return fmt.Errorf("could not execute init Application queries: %w", err)
-	}
+	// appDB, err := pool.Connection(info.Database)
+	// if err != nil {
+	// 	return fmt.Errorf("could not get connection to ApplicationDatabase: %w", err)
+	// }
+	// // Execute the custom set of init queries of the application database
+	// log.Info("executing Application instructions")
+	// if err = info.executeQueries(appDB, info.PostInitApplicationSQL); err != nil {
+	// 	return fmt.Errorf("could not execute init Application queries: %w", err)
+	// }
 
-	if err = info.executePostInitApplicationSQLRefs(appDB); err != nil {
-		return fmt.Errorf("could not execute post init application SQL refs: %w", err)
-	}
+	// if err = info.executePostInitApplicationSQLRefs(appDB); err != nil {
+	// 	return fmt.Errorf("could not execute post init application SQL refs: %w", err)
+	// }
 
 	return nil
 }
@@ -528,31 +527,31 @@ func (info InitInfo) Bootstrap(ctx context.Context) error {
 }
 
 // Bootstrap creates and configures this new PostgreSQL database
-func (info InitDbInfo) Bootstrap(ctx context.Context) error {
-	typedClient, err := management.NewControllerRuntimeClient()
-	if err != nil {
-		return err
-	}
+func BootstrapDb(ctx context.Context, database *apiv1.Database) error {
+	// typedClient, err := management.NewControllerRuntimeClient()
+	// if err != nil {
+	// 	return err
+	// }
 
-	database, err := info.loadDatabase(ctx, typedClient)
-	if err != nil {
-		return err
-	}
+	// database, err := info.loadDatabase(ctx, typedClient)
+	// if err != nil {
+	// 	return err
+	// }
 
 	pool := NewConnectionPool()
-	err = info.ConfigureNewDatabase(pool)
+	err := ConfigureNewDatabase(database, pool)
 	if err != nil {
 		return fmt.Errorf("while configuring new instance: %w", err)
 	}
 
-	if database.Spec.Bootstrap != nil &&
-		database.Spec.Bootstrap.InitDB != nil &&
-		database.Spec.Bootstrap.InitDB.Import != nil {
-		err = executeLogicalImport2(ctx, typedClient, pool, database)
-		if err != nil {
-			return fmt.Errorf("while executing logical import: %w", err)
-		}
-	}
+	// if database.Spec.Bootstrap != nil &&
+	// 	database.Spec.Bootstrap.InitDB != nil &&
+	// 	database.Spec.Bootstrap.InitDB.Import != nil {
+	// 	err = executeLogicalImport2(ctx, typedClient, pool, database)
+	// 	if err != nil {
+	// 		return fmt.Errorf("while executing logical import: %w", err)
+	// 	}
+	// }
 
 	return nil
 }

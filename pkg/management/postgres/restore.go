@@ -397,13 +397,13 @@ func (info InitInfo) loadCluster(ctx context.Context, typedClient client.Client)
 
 // loadCluster loads the database definition from the API server
 func (info InitDbInfo) loadDatabase(ctx context.Context, typedClient client.Client) (*apiv1.Database, error) {
-	var cluster apiv1.Database
-	err := typedClient.Get(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.DatabaseName}, &cluster)
+	var database apiv1.Database
+	err := typedClient.Get(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.ApplicationDatabase}, &database)
 	if err != nil {
 		return nil, err
 	}
 
-	return &cluster, nil
+	return &database, nil
 }
 
 // loadBackup loads the backup manifest from the API server of from the object store.

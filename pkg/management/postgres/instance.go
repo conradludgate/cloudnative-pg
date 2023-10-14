@@ -592,7 +592,7 @@ func NewConnectionPool() *pool.ConnectionPool {
 	return pool.NewConnectionPool(dsn)
 }
 
-func NewDatabaseConnectionPool() *pool.ConnectionPool {
+func NewDatabaseConnectionPool(cluster *apiv1.Cluster) *pool.ConnectionPool {
 	const applicationName = "cnpg-instance-manager"
 	socketDir := GetSocketDir()
 	dsn := fmt.Sprintf(

@@ -30,7 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +45,7 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/log"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/resources/instance"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 )
 
@@ -612,7 +615,7 @@ func (r *DatabaseReconciler) ReconcilePods(ctx context.Context, cluster *apiv1.C
 	database *apiv1.Database,
 	resources *managedDatabaseResources, instancesStatus postgres.PostgresqlStatusList,
 ) (ctrl.Result, error) {
-	// contextLogger := log.FromContext(ctx)
+	contextLogger := log.FromContext(ctx)
 
 	r.Recorder.Event(database, "Normal", "ReconcilePods", "we should definitely start a job here probs")
 
@@ -654,7 +657,89 @@ func (r *DatabaseReconciler) ReconcilePods(ctx context.Context, cluster *apiv1.C
 	// 	return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
 	// }
 
-	return r.createDatabase(ctx, cluster, database)
+	r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "hopefully creating the database pls")
+
+	pod, err := r.getSetupTargetPod(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	config := ctrl.GetConfigOrDie()
+	clientInterface := kubernetes.NewForConfigOrDie(config)
+
+	switch {
+	case database.Spec.Bootstrap != nil && database.Spec.Bootstrap.Recovery != nil:
+		var backup *apiv1.Backup
+		if database.Spec.Bootstrap.Recovery.Backup != nil {
+			backup, err = r.getOriginBackup(ctx, cluster, database)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if backup == nil {
+				contextLogger.Info("Missing backup object, can't continue full recovery",
+					"backup", database.Spec.Bootstrap.Recovery.Backup)
+				return ctrl.Result{
+					Requeue:      true,
+					RequeueAfter: time.Minute,
+				}, nil
+			}
+		}
+
+		panic("todo")
+
+		// if database.Spec.Bootstrap.Recovery.VolumeSnapshots != nil {
+		// 	r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (from volumeSnapshots)")
+		// 	job = specs.CreatePrimaryJobViaRestoreSnapshot(*cluster, nodeSerial, backup)
+		// 	break
+		// }
+
+		// r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (from backup)")
+		// job = specs.CreatePrimaryJobViaRecovery(*cluster, nodeSerial, backup)
+	case cluster.Spec.Bootstrap != nil && cluster.Spec.Bootstrap.PgBaseBackup != nil:
+		panic("todo")
+		// r.Recorder.Event(cluster, "Normal", "CreatingDatabase", "Primary instance (from physical backup)")
+		// job = specs.CreatePrimaryJobViaPgBaseBackup(*cluster, nodeSerial)
+	default:
+		r.Recorder.Event(database, "Normal", "CreatingDatabase", "Primary instance (setupdb)")
+		var stdout, stderr string
+		err = retry.OnError(retry.DefaultBackoff, func(error) bool { return true }, func() error {
+			stdout, stderr, err = utils.ExecCommand(
+				ctx,
+				clientInterface,
+				config,
+				*pod,
+				specs.PostgresContainerName,
+				nil,
+				"/controller/manager",
+				"database",
+				"setup",
+				database.Name,
+				database.Namespace,
+			)
+			return err
+		})
+
+		if err != nil {
+			log.FromContext(ctx).Error(err, "executing backup", "stdout", stdout, "stderr", stderr)
+			// status.SetAsFailed(fmt.Errorf("can't execute backup: %w", err))
+			// status.CommandError = stderr
+			// status.CommandError = stdout
+
+			// // Update backup status in cluster conditions
+			// if errCond := conditions.Patch(ctx, client, cluster, apiv1.BuildClusterBackupFailedCondition(err)); errCond != nil {
+			// 	log.FromContext(ctx).Error(errCond, "Error while updating backup condition (backup failed)")
+			// }
+			// return postgres.PatchBackupStatusAndRetry(ctx, client, backup)
+
+			r.RegisterPhase(ctx, database, apiv1.DatabasePhaseFailed, "couldn't create database")
+			return ctrl.Result{}, err
+		}
+		// job = specs.CreateDatabaseSetupJob(*cluster, *database, nodeSerial)
+	}
+
+	r.RegisterPhase(ctx, database, apiv1.DatabasePhaseCompleted, "created database")
+	return ctrl.Result{}, nil
+
+	// return r.createDatabase(ctx, cluster, database)
 
 	// // if !instancesStatus.IsComplete() {
 	// // 	return ctrl.Result{RequeueAfter: 30 * time.Second}, ErrNextLoop
@@ -1059,3 +1144,17 @@ func filterDatabasesUsingSecret(
 // 			"configmap", configuration.Current.MonitoringQueriesConfigmap)
 // 	}
 // }
+
+// getBackupTargetPod returns the pod that should run the backup according to the current
+// cluster's target policy
+func (r *DatabaseReconciler) getSetupTargetPod(ctx context.Context,
+	cluster *apiv1.Cluster,
+) (*corev1.Pod, error) {
+	var pod corev1.Pod
+	err := r.Get(ctx, client.ObjectKey{
+		Namespace: cluster.Namespace,
+		Name:      cluster.Status.TargetPrimary,
+	}, &pod)
+
+	return &pod, err
+}

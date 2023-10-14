@@ -44,3 +44,27 @@ func CreateRoleBinding(objectMeta metav1.ObjectMeta) rbacv1.RoleBinding {
 		},
 	}
 }
+
+// CreateRoleBinding is the binding between the permissions that the instance manager can use
+// and the ServiceAccount used by the Pod
+func CreateDbRoleBinding(objectMeta metav1.ObjectMeta) rbacv1.ClusterRoleBinding {
+	return rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			// Namespace: objectMeta.Namespace,
+			Name: objectMeta.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				APIGroup:  "",
+				Name:      objectMeta.Name,
+				Namespace: objectMeta.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     objectMeta.Name,
+		},
+	}
+}

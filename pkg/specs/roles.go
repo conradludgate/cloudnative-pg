@@ -59,6 +59,35 @@ func CreateRole(cluster apiv1.Cluster, backupOrigin *apiv1.Backup) rbacv1.Role {
 				"postgresql.cnpg.io",
 			},
 			Resources: []string{
+				"databases",
+			},
+			Verbs: []string{
+				"get",
+				"list",
+				"watch",
+			},
+			ResourceNames: []string{},
+		},
+		{
+			APIGroups: []string{
+				"postgresql.cnpg.io",
+			},
+			Resources: []string{
+				"databases/status",
+			},
+			Verbs: []string{
+				"get",
+				"patch",
+				"update",
+				"watch",
+			},
+			ResourceNames: []string{},
+		},
+		{
+			APIGroups: []string{
+				"postgresql.cnpg.io",
+			},
+			Resources: []string{
 				"clusters",
 			},
 			Verbs: []string{
@@ -136,8 +165,8 @@ func CreateRole(cluster apiv1.Cluster, backupOrigin *apiv1.Backup) rbacv1.Role {
 	}
 }
 
-// CreateRole create a role with the permissions needed by the instance manager
-func CreateDbRole(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *apiv1.Backup) rbacv1.Role {
+// CreateDbRole create a role with the permissions needed by the database manager
+func CreateDbRole(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *apiv1.Backup) rbacv1.ClusterRole {
 	rules := []rbacv1.PolicyRule{
 		// {
 		// 	APIGroups: []string{
@@ -190,8 +219,6 @@ func CreateDbRole(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *
 			},
 			Verbs: []string{
 				"get",
-				"patch",
-				"update",
 				"watch",
 			},
 			ResourceNames: []string{
@@ -245,10 +272,10 @@ func CreateDbRole(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *
 		},
 	}
 
-	return rbacv1.Role{
+	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: database.Spec.Cluster.Namespace,
-			Name:      database.Name,
+			// Namespace: database.Spec.Cluster.Namespace,
+			Name: database.Name,
 		},
 		Rules: rules,
 	}
@@ -281,6 +308,7 @@ func getInvolvedSecretNames(cluster apiv1.Cluster, backupOrigin *apiv1.Backup) [
 func getInvolvedDbSecretNames(cluster apiv1.Cluster, database apiv1.Database, backupOrigin *apiv1.Backup) []string {
 	involvedSecretNames := []string{
 		database.GetApplicationSecretName(),
+		cluster.GetSuperuserSecretName(),
 	}
 
 	involvedSecretNames = append(involvedSecretNames, backupSecrets(cluster, backupOrigin)...)

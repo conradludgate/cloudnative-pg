@@ -153,7 +153,7 @@ func WaitKubernetesAPIServer(ctx context.Context, clusterObjectKey client.Object
 
 // WaitKubernetesAPIServer will wait for the kubernetes API server to by ready.
 // Returns any error if it can't be reached.
-func WaitKubernetesAPIServerDatabase(ctx context.Context, databaseObjectKey client.ObjectKey) error {
+func WaitKubernetesAPIServerDatabase(ctx context.Context, database *apiv1.Database, databaseObjectKey client.ObjectKey) error {
 	logger := log.FromContext(ctx)
 
 	cli, err := NewControllerRuntimeClient()
@@ -163,7 +163,7 @@ func WaitKubernetesAPIServerDatabase(ctx context.Context, databaseObjectKey clie
 	}
 
 	if err := retry.OnError(readinessCheckRetry, resources.RetryAlways, func() (err error) {
-		return cli.Get(ctx, databaseObjectKey, &apiv1.Database{})
+		return cli.Get(ctx, databaseObjectKey, database)
 	}); err != nil {
 		const message = "error while waiting for the API server to be reachable"
 		logger.Error(err, message)

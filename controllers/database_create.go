@@ -52,15 +52,15 @@ func (r *DatabaseReconciler) createPostgresDatabaseObjects(ctx context.Context, 
 		return err
 	}
 
-	err = r.createOrPatchRole(ctx, cluster, database)
-	if err != nil {
-		return err
-	}
+	// err = r.createOrPatchRole(ctx, cluster, database)
+	// if err != nil {
+	// 	return err
+	// }
 
-	err = r.createRoleBinding(ctx, database)
-	if err != nil {
-		return err
-	}
+	// err = r.createRoleBinding(ctx, database)
+	// if err != nil {
+	// 	return err
+	// }
 
 	// TODO: only required to cleanup custom monitoring queries configmaps from older versions (v1.10 and v1.11)
 	// 		 that could have been copied with the source configmap name instead of the new default one.
@@ -218,22 +218,22 @@ func (r *DatabaseReconciler) createOrPatchRole(ctx context.Context, cluster *api
 	}
 
 	var role rbacv1.Role
-	if err := r.Get(ctx, client.ObjectKey{Name: database.Name, Namespace: cluster.Namespace}, &role); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}, &role); err != nil {
 		if !apierrs.IsNotFound(err) {
 			return fmt.Errorf("while getting role: %w", err)
 		}
 
-		r.Recorder.Event(cluster, "Normal", "CreatingRole", "Creating Cluster Role")
+		r.Recorder.Event(database, "Normal", "CreatingRole", "Creating Cluster Role")
 		return r.createRole(ctx, cluster, database, originBackup)
 	}
 
-	generatedRole := specs.CreateDbRole(*cluster, *database, originBackup)
+	generatedRole := specs.CreateRole(*cluster, originBackup)
 	if reflect.DeepEqual(generatedRole.Rules, role.Rules) {
 		// Everything fine, the two config maps are exactly the same
 		return nil
 	}
 
-	r.Recorder.Event(cluster, "Normal", "UpdatingRole", "Updating Cluster Role")
+	r.Recorder.Event(database, "Normal", "UpdatingRole", "Updating Cluster Role")
 
 	// The configuration changed, and we need the patch the
 	// configMap we have
@@ -248,7 +248,7 @@ func (r *DatabaseReconciler) createOrPatchRole(ctx context.Context, cluster *api
 
 // createRole creates the role
 func (r *DatabaseReconciler) createRole(ctx context.Context, cluster *apiv1.Cluster, database *apiv1.Database, backupOrigin *apiv1.Backup) error {
-	role := specs.CreateDbRole(*cluster, *database, backupOrigin)
+	role := specs.CreateRole(*cluster, backupOrigin)
 	cluster.SetInheritedDataAndOwnership(&role.ObjectMeta)
 
 	err := r.Create(ctx, &role)
